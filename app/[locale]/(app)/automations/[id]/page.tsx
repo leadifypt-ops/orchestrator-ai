@@ -7,6 +7,7 @@ import DeleteAutomationButton from "@/components/DeleteAutomationButton";
 import EditAutomationForm from "@/components/EditAutomationForm";
 import AutomationAutoRefresh from "@/components/AutomationAutoRefresh";
 import ExecutionResult from "@/components/ExecutionResult";
+import ManychatConnect from "@/components/integrations/ManychatConnect";
 
 type PageProps = {
   params: Promise<{
@@ -202,6 +203,8 @@ export default async function AutomationDetailPage({ params }: PageProps) {
             </div>
           </div>
         </div>
+
+        <ManychatConnect automationId={automation.id} />
 
         <EditAutomationForm automation={automation} />
 
