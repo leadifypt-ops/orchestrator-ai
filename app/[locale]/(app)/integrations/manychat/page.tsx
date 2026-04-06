@@ -22,8 +22,6 @@ export default function ManychatIntegrationPage() {
 
           <p className="mt-3 max-w-3xl text-sm text-zinc-600">
             Esta página centraliza a ligação do ManyChat à tua app.
-            Aqui tens tudo pronto para copiar, testar e usar sem
-            andares a procurar endpoint, secret ou body manualmente.
           </p>
         </div>
 
