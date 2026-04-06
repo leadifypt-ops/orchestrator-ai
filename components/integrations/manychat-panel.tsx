@@ -5,11 +5,17 @@ import { useMemo, useState } from "react";
 type ManychatPanelProps = {
   appUrl: string;
   secret: string;
+  automationId?: string;
+  automationName?: string;
+  automationStatus?: string;
 };
 
 export default function ManychatPanel({
   appUrl,
   secret,
+  automationId = "",
+  automationName = "",
+  automationStatus = "",
 }: ManychatPanelProps) {
   const [testStatus, setTestStatus] = useState<
     "idle" | "loading" | "success" | "error"
@@ -25,6 +31,7 @@ export default function ManychatPanel({
     return JSON.stringify(
       {
         secret,
+        automationId: automationId || "{{automation_id}}",
         name: "{{first_name}}",
         instagram: "{{username}}",
         phone: "{{phone}}",
@@ -35,7 +42,7 @@ export default function ManychatPanel({
       null,
       2
     );
-  }, [secret]);
+  }, [secret, automationId]);
 
   const freeLink = useMemo(() => {
     const url = new URL(endpoint);
@@ -44,8 +51,13 @@ export default function ManychatPanel({
     url.searchParams.set("channel", "instagram");
     url.searchParams.set("name", "Lead Instagram");
     url.searchParams.set("message", "lead from manychat");
+
+    if (automationId) {
+      url.searchParams.set("automationId", automationId);
+    }
+
     return url.toString();
-  }, [endpoint, secret]);
+  }, [endpoint, secret, automationId]);
 
   async function copyText(text: string) {
     try {
@@ -68,6 +80,7 @@ export default function ManychatPanel({
         },
         body: JSON.stringify({
           secret,
+          automationId: automationId || undefined,
           name: "Teste Integração",
           phone: "912345678",
           instagram: "@teste.integracao",
@@ -87,7 +100,9 @@ export default function ManychatPanel({
 
       setTestStatus("success");
       setTestMessage(
-        `Webhook OK. Lead criada com status: ${data?.lead?.status || "sem status"}`
+        `Webhook OK. Lead criada com status: ${
+          data?.lead?.status || "sem status"
+        }`
       );
     } catch {
       setTestStatus("error");
@@ -97,6 +112,32 @@ export default function ManychatPanel({
 
   return (
     <div className="grid gap-6">
+      {automationId ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-zinc-900">
+            Automação selecionada
+          </h2>
+          <div className="mt-4 grid gap-3 text-sm text-zinc-700">
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+              <strong>ID:</strong> {automationId}
+            </div>
+
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+              <strong>Nome:</strong> {automationName || "Sem nome"}
+            </div>
+
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+              <strong>Status:</strong> {automationStatus || "Sem status"}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+          Nenhuma automação específica foi passada. A route vai usar a automação
+          ativa mais recente.
+        </div>
+      )}
+
       {!appUrl ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           NEXT_PUBLIC_APP_URL não está definido.
@@ -236,32 +277,6 @@ export default function ManychatPanel({
             {testMessage}
           </div>
         ) : null}
-      </div>
-
-      <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-zinc-900">
-          Como usar
-        </h2>
-
-        <div className="mt-4 grid gap-3 text-sm text-zinc-700">
-          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-            <strong>Opção 1 — ManyChat Pro</strong>
-            <br />
-            Copias o endpoint + JSON e usas External Request.
-          </div>
-
-          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-            <strong>Opção 2 — ManyChat grátis</strong>
-            <br />
-            Copias o link pronto e usas num botão para teste.
-          </div>
-
-          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-            <strong>Importante</strong>
-            <br />
-            A route pública já tenta encontrar automaticamente a automação ativa mais recente.
-          </div>
-        </div>
       </div>
     </div>
   );
