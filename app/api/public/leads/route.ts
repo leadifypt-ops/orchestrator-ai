@@ -7,24 +7,32 @@ type LeadHistoryItem = {
   content: string;
 };
 
+type LeadRow = {
+  id: string;
+  user_id?: string | null;
+  automation_id?: string | null;
+  name?: string | null;
+  phone?: string | null;
+  whatsapp?: string | null;
+  instagram?: string | null;
+  message?: string | null;
+  source?: string | null;
+  channel?: string | null;
+  status?: string | null;
+  pipeline_stage?: string | null;
+  ai_stage?: string | null;
+  ai_status?: string | null;
+  ai_reply?: string | null;
+  ai_language?: string | null;
+  ai_next_action?: string | null;
+  ai_confidence?: number | null;
+  ai_history?: LeadHistoryItem[] | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+};
+
 function normalizeValue(value?: string | null) {
   return (value || "").trim().toLowerCase();
-}
-
-function buildLeadIdentity({
-  instagram,
-  phone,
-  name,
-}: {
-  instagram?: string | null;
-  phone?: string | null;
-  name?: string | null;
-}) {
-  return {
-    instagram: normalizeValue(instagram),
-    phone: normalizeValue(phone),
-    name: normalizeValue(name),
-  };
 }
 
 export async function POST(req: Request) {
@@ -72,43 +80,103 @@ export async function POST(req: Request) {
       );
     }
 
-    const identity = buildLeadIdentity({ instagram, phone, name });
+    const normalizedInstagram = normalizeValue(instagram);
+    const normalizedPhone = normalizeValue(phone);
+    const normalizedWhatsapp = normalizeValue(whatsapp);
 
-    let existingLead = null;
+    let existingLead: LeadRow | null = null;
 
-    if (identity.instagram || identity.phone) {
-      let query = supabase
+    if (normalizedInstagram) {
+      const { data } = await supabase
         .from("leads")
         .select("*")
         .eq("automation_id", automationId)
+        .eq("instagram", instagram)
         .not("status", "in", '("booked","lost")')
         .order("created_at", { ascending: false })
-        .limit(20);
+        .limit(1)
+        .maybeSingle();
 
-      const { data: recentLeads } = await query;
-
-      if (recentLeads && recentLeads.length > 0) {
-        existingLead =
-          recentLeads.find((lead) => {
-            const leadInstagram = normalizeValue(lead.instagram);
-            const leadPhone = normalizeValue(lead.phone);
-
-            return (
-              (identity.instagram && leadInstagram === identity.instagram) ||
-              (identity.phone && leadPhone === identity.phone)
-            );
-          }) || null;
-      }
+      existingLead = (data as LeadRow | null) ?? null;
     }
 
-    let lead = existingLead;
+    if (!existingLead && normalizedPhone) {
+      const { data } = await supabase
+        .from("leads")
+        .select("*")
+        .eq("automation_id", automationId)
+        .eq("phone", phone)
+        .not("status", "in", '("booked","lost")')
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    if (!lead) {
+      existingLead = (data as LeadRow | null) ?? null;
+    }
+
+    if (!existingLead && normalizedWhatsapp) {
+      const { data } = await supabase
+        .from("leads")
+        .select("*")
+        .eq("automation_id", automationId)
+        .eq("whatsapp", whatsapp)
+        .not("status", "in", '("booked","lost")')
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      existingLead = (data as LeadRow | null) ?? null;
+    }
+
+    let lead: LeadRow;
+
+    if (existingLead) {
+      const currentHistory: LeadHistoryItem[] = Array.isArray(
+        existingLead.ai_history
+      )
+        ? existingLead.ai_history
+        : [];
+
+      const updatedHistory: LeadHistoryItem[] = message
+        ? [...currentHistory, { role: "lead", content: String(message) }]
+        : currentHistory;
+
+      const { data: updatedLead, error: updateError } = await supabase
+        .from("leads")
+        .update({
+          name: name || existingLead.name,
+          phone: phone || existingLead.phone,
+          whatsapp:
+            whatsapp ||
+            phone ||
+            existingLead.whatsapp ||
+            existingLead.phone ||
+            null,
+          instagram: instagram || existingLead.instagram,
+          source: source || existingLead.source,
+          channel: channel || existingLead.channel,
+          message: message || existingLead.message,
+          ai_history: updatedHistory,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingLead.id)
+        .select()
+        .single();
+
+      if (updateError || !updatedLead) {
+        return NextResponse.json(
+          { error: updateError?.message || "Failed to update lead" },
+          { status: 500 }
+        );
+      }
+
+      lead = updatedLead as LeadRow;
+    } else {
       const initialHistory: LeadHistoryItem[] = message
         ? [{ role: "lead", content: String(message) }]
         : [];
 
-      const { data: insertedLead, error: insertError } = await supabase
+      const { data: createdLead, error: createError } = await supabase
         .from("leads")
         .insert({
           user_id: automation.user_id,
@@ -129,47 +197,14 @@ export async function POST(req: Request) {
         .select()
         .single();
 
-      if (insertError || !insertedLead) {
+      if (createError || !createdLead) {
         return NextResponse.json(
-          { error: insertError?.message || "Failed to create lead" },
+          { error: createError?.message || "Failed to create lead" },
           { status: 500 }
         );
       }
 
-      lead = insertedLead;
-    } else {
-      const currentHistory: LeadHistoryItem[] = Array.isArray(lead.ai_history)
-        ? lead.ai_history
-        : [];
-
-      const updatedHistory: LeadHistoryItem[] = message
-        ? [...currentHistory, { role: "lead", content: String(message) }]
-        : currentHistory;
-
-      const { data: updatedLead, error: updateLeadError } = await supabase
-        .from("leads")
-        .update({
-          name: name || lead.name,
-          phone: phone || lead.phone,
-          whatsapp: whatsapp || phone || lead.whatsapp || lead.phone || null,
-          instagram: instagram || lead.instagram,
-          source: source || lead.source,
-          channel: channel || lead.channel,
-          message: message || lead.message,
-          ai_history: updatedHistory,
-        })
-        .eq("id", lead.id)
-        .select()
-        .single();
-
-      if (updateLeadError || !updatedLead) {
-        return NextResponse.json(
-          { error: updateLeadError?.message || "Failed to update lead" },
-          { status: 500 }
-        );
-      }
-
-      lead = updatedLead;
+      lead = createdLead as LeadRow;
     }
 
     const historyBeforeAI: LeadHistoryItem[] = Array.isArray(lead.ai_history)
@@ -178,9 +213,15 @@ export async function POST(req: Request) {
 
     const ai = await runLeadAI({
       lead: {
-        ...lead,
+        id: lead.id,
+        name: lead.name,
+        phone: lead.phone,
+        instagram: lead.instagram,
         whatsapp: lead.whatsapp || whatsapp || phone || null,
         message: message || lead.message || "",
+        status: lead.status,
+        pipeline_stage: lead.pipeline_stage,
+        ai_stage: lead.ai_stage,
         ai_history: historyBeforeAI,
       },
       automation,
@@ -228,6 +269,7 @@ export async function POST(req: Request) {
         ai_history: updatedHistoryAfterAI,
         status: mappedLeadStatus,
         pipeline_stage: mappedPipelineStage,
+        updated_at: new Date().toISOString(),
       })
       .eq("id", lead.id)
       .select()
@@ -235,7 +277,9 @@ export async function POST(req: Request) {
 
     if (finalUpdateError || !finalLead) {
       return NextResponse.json(
-        { error: finalUpdateError?.message || "Failed to update AI fields" },
+        {
+          error: finalUpdateError?.message || "Failed to update AI fields",
+        },
         { status: 500 }
       );
     }
