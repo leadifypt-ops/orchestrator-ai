@@ -9,12 +9,35 @@ import AutomationAutoRefresh from "@/components/AutomationAutoRefresh";
 import ExecutionResult from "@/components/ExecutionResult";
 import ManychatConnect from "@/components/integrations/ManychatConnect";
 import SimulateLeadButton from "@/components/SimulateLeadButton";
+import LeadConversation from "@/components/LeadConversation";
 
 type PageProps = {
   params: Promise<{
     locale: string;
     id: string;
   }>;
+};
+
+type LeadRow = {
+  id: string;
+  name?: string | null;
+  phone?: string | null;
+  whatsapp?: string | null;
+  instagram?: string | null;
+  message?: string | null;
+  source?: string | null;
+  channel?: string | null;
+  status?: string | null;
+  pipeline_stage?: string | null;
+  ai_stage?: string | null;
+  ai_status?: string | null;
+  ai_reply?: string | null;
+  ai_language?: string | null;
+  ai_next_action?: string | null;
+  ai_confidence?: number | null;
+  ai_history?: Array<{ role: "lead" | "assistant"; content: string }> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 function getStatusClasses(status?: string | null) {
@@ -30,6 +53,24 @@ function getStatusClasses(status?: string | null) {
 
   if (value === "failed" || value === "error") {
     return "border-red-500/30 bg-red-500/10 text-red-300";
+  }
+
+  return "border-zinc-700 bg-zinc-900 text-zinc-300";
+}
+
+function getLeadStatusClasses(status?: string | null) {
+  const value = (status || "").toLowerCase();
+
+  if (value === "booked") {
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+  }
+
+  if (value === "lost") {
+    return "border-red-500/30 bg-red-500/10 text-red-300";
+  }
+
+  if (value === "contacted" || value === "active") {
+    return "border-amber-500/30 bg-amber-500/10 text-amber-300";
   }
 
   return "border-zinc-700 bg-zinc-900 text-zinc-300";
@@ -66,6 +107,13 @@ export default async function AutomationDetailPage({ params }: PageProps) {
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 
+  const { data: leads, error: leadsError } = await supabase
+    .from("leads")
+    .select("*")
+    .eq("automation_id", id)
+    .eq("user_id", user.id)
+    .order("updated_at", { ascending: false });
+
   const automationTitle =
     automation.name || automation.project_name || "Automação sem nome";
 
@@ -84,6 +132,8 @@ export default async function AutomationDetailPage({ params }: PageProps) {
         String(run.status || "").toLowerCase()
       )
     ).length || 0;
+
+  const typedLeads = (leads || []) as LeadRow[];
 
   return (
     <div className="min-h-screen bg-black p-6 text-white">
@@ -300,6 +350,112 @@ export default async function AutomationDetailPage({ params }: PageProps) {
               </div>
             )}
           </div>
+        </div>
+
+        <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Leads / Conversas</h2>
+
+            <span className="rounded-full border border-zinc-700 px-3 py-1 text-xs text-zinc-400">
+              {typedLeads.length} leads
+            </span>
+          </div>
+
+          {leadsError ? (
+            <p className="text-red-400">{leadsError.message}</p>
+          ) : typedLeads.length === 0 ? (
+            <p className="text-zinc-400">Ainda não existem leads nesta automação.</p>
+          ) : (
+            <div className="space-y-6">
+              {typedLeads.map((lead) => (
+                <div
+                  key={lead.id}
+                  className="rounded-2xl border border-zinc-800 bg-black p-4"
+                >
+                  <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-zinc-100">
+                        {lead.name || "Lead sem nome"}
+                      </p>
+
+                      <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-500">
+                        {lead.instagram ? (
+                          <span>
+                            Instagram:{" "}
+                            <span className="text-zinc-300">{lead.instagram}</span>
+                          </span>
+                        ) : null}
+
+                        {lead.phone ? (
+                          <span>
+                            Telefone:{" "}
+                            <span className="text-zinc-300">{lead.phone}</span>
+                          </span>
+                        ) : null}
+
+                        {lead.channel ? (
+                          <span>
+                            Canal:{" "}
+                            <span className="text-zinc-300">{lead.channel}</span>
+                          </span>
+                        ) : null}
+
+                        {lead.updated_at ? (
+                          <span>
+                            Atualizado:{" "}
+                            <span className="text-zinc-300">
+                              {new Date(lead.updated_at).toLocaleString()}
+                            </span>
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {lead.pipeline_stage ? (
+                        <span className="rounded-full border border-zinc-700 px-3 py-1 text-xs text-zinc-300">
+                          {lead.pipeline_stage}
+                        </span>
+                      ) : null}
+
+                      <span
+                        className={`rounded-full border px-3 py-1 text-xs uppercase ${getLeadStatusClasses(
+                          lead.status || lead.ai_status
+                        )}`}
+                      >
+                        {lead.status || lead.ai_status || "new"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <LeadConversation
+                    history={lead.ai_history}
+                    stage={lead.ai_stage}
+                    status={lead.ai_status}
+                    pipelineStage={lead.pipeline_stage}
+                  />
+
+                  {lead.ai_reply ? (
+                    <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+                      <p className="mb-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                        Última resposta da IA
+                      </p>
+                      <p className="text-sm text-zinc-200">{lead.ai_reply}</p>
+                    </div>
+                  ) : null}
+
+                  {lead.ai_next_action ? (
+                    <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+                      <p className="mb-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                        Próxima ação da IA
+                      </p>
+                      <p className="text-sm text-zinc-300">{lead.ai_next_action}</p>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
