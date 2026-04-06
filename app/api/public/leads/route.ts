@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
-async function processLead(payload: {
+type LeadPayload = {
   secret?: string | null;
   automationId?: string | null;
   name?: string | null;
@@ -11,7 +11,9 @@ async function processLead(payload: {
   channel?: string | null;
   message?: string | null;
   value?: string | number | null;
-}) {
+};
+
+async function processLead(payload: LeadPayload) {
   const {
     secret,
     automationId,
@@ -28,9 +30,6 @@ async function processLead(payload: {
     process.env.LEADS_WEBHOOK_SECRET ||
     process.env.RUNNER_SECRET ||
     process.env.DISPATCH_SECRET;
-
-  console.log("EXPECTED SECRET:", expectedSecret);
-  console.log("SECRET RECEBIDO:", secret);
 
   if (!expectedSecret) {
     return {
@@ -50,9 +49,6 @@ async function processLead(payload: {
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  console.log("SUPABASE URL EXISTS:", !!supabaseUrl);
-  console.log("SERVICE ROLE EXISTS:", !!serviceRoleKey);
 
   if (!supabaseUrl || !serviceRoleKey) {
     return {
@@ -103,8 +99,6 @@ async function processLead(payload: {
     automationError = result.error;
   }
 
-  console.log("AUTOMATION FINAL:", automation, automationError);
-
   if (automationError) {
     return {
       ok: false,
@@ -138,8 +132,6 @@ async function processLead(payload: {
     .select()
     .single();
 
-  console.log("LEAD CRIADA:", lead, insertError);
-
   if (insertError || !lead) {
     return {
       ok: false,
@@ -152,8 +144,6 @@ async function processLead(payload: {
     automation.webhook_url ||
     process.env.N8N_AUTOMATION_WEBHOOK_URL ||
     process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL;
-
-  console.log("WEBHOOK URL:", webhookUrl);
 
   if (!webhookUrl) {
     return {
@@ -185,22 +175,39 @@ async function processLead(payload: {
     },
   };
 
-  const response = await fetch(webhookUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(executionPayload),
-  });
+  let response: Response | null = null;
+  let executionResult: any = null;
 
-  const executionResult = await response.json();
+  try {
+    response = await fetch(webhookUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(executionPayload),
+    });
 
-  console.log("N8N RESPONSE:", executionResult);
+    const text = await response.text();
+
+    try {
+      executionResult = text ? JSON.parse(text) : { ok: true };
+    } catch {
+      executionResult = {
+        ok: response.ok,
+        raw: text,
+      };
+    }
+  } catch (error) {
+    executionResult = {
+      ok: false,
+      error: "Webhook request failed",
+    };
+  }
 
   const nextStatus =
     executionResult?.leadStatus ||
     executionResult?.status ||
-    "contacted";
+    (response?.ok ? "contacted" : "new");
 
   const { data: updatedLead, error: updateError } = await supabase
     .from("leads")
@@ -212,8 +219,6 @@ async function processLead(payload: {
     .select()
     .single();
 
-  console.log("UPDATED LEAD:", updatedLead, updateError);
-
   return {
     ok: true,
     status: 200,
@@ -222,26 +227,23 @@ async function processLead(payload: {
       triggered: true,
       lead: updatedLead || lead,
       executionResult,
+      webhookOk: response?.ok ?? false,
+      updateError: updateError?.message || null,
     },
   };
 }
 
 export async function POST(req: Request) {
   try {
-    console.log("PUBLIC LEADS ROUTE START [POST]");
-
     const body = await req.json();
-
-    console.log("BODY RECEBIDO:", body);
-
     const result = await processLead(body);
-
     return NextResponse.json(result.body, { status: result.status });
   } catch (err) {
-    console.log("PUBLIC LEADS ERROR [POST]:", err);
-
     return NextResponse.json(
-      { error: "Internal error" },
+      {
+        error: "Internal error",
+        details: err instanceof Error ? err.message : "Unknown error",
+      },
       { status: 500 }
     );
   }
@@ -249,8 +251,6 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
   try {
-    console.log("PUBLIC LEADS ROUTE START [GET]");
-
     const { searchParams } = new URL(req.url);
 
     const secret = searchParams.get("secret");
@@ -286,10 +286,11 @@ export async function GET(req: Request) {
 
     return NextResponse.json(result.body, { status: result.status });
   } catch (err) {
-    console.log("PUBLIC LEADS ERROR [GET]:", err);
-
     return NextResponse.json(
-      { error: "Internal error" },
+      {
+        error: "Internal error",
+        details: err instanceof Error ? err.message : "Unknown error",
+      },
       { status: 500 }
     );
   }
