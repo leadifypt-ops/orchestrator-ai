@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { runLeadAI } from "@/lib/ai-lead-engine";
+import { sendChannelReply } from "@/lib/send-channel-reply";
 
 type LeadHistoryItem = {
   role: "lead" | "assistant";
@@ -283,6 +284,13 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
+
+    await sendChannelReply({
+      channel: finalLead.channel,
+      instagram: finalLead.instagram,
+      phone: finalLead.whatsapp || finalLead.phone,
+      message: finalLead.ai_reply || ai.reply,
+    });
 
     return NextResponse.json({
       ok: true,
