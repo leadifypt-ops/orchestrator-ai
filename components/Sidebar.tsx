@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import Link from "next/link";
+import { useRouter, usePathname } from "next/navigation";
+import { supabase } from "../lib/supabase-client";
 
 type SidebarProps = {
   email: string;
@@ -10,84 +10,55 @@ type SidebarProps = {
 
 export default function Sidebar({ email }: SidebarProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const locale = pathname?.split("/")[1] || "pt";
 
   async function handleLogout() {
     await supabase.auth.signOut();
-    router.push('/en/login');
+    router.push(`/${locale}/login`);
   }
 
   return (
-    <aside className="flex h-screen w-72 flex-col justify-between border-r border-white/10 bg-[#0a0a0a] p-6 text-white">
-      
-      <div>
-        <div className="mb-10">
-          <h1 className="text-2xl font-bold">Orchestra AI</h1>
-          <p className="mt-2 text-sm text-gray-400">
-            AI automation platform
-          </p>
-        </div>
-
-        <nav className="space-y-2">
-
-          <Link
-            href="/en/dashboard"
-            className="block rounded-xl px-4 py-3 text-sm font-medium text-white transition hover:bg-white/10"
-          >
-            Dashboard
-          </Link>
-
-          <Link
-            href="/en/projects"
-            className="block rounded-xl px-4 py-3 text-sm font-medium text-gray-300 transition hover:bg-white/10"
-          >
-            Projects
-          </Link>
-
-          <Link
-            href="/en/agents"
-            className="block rounded-xl px-4 py-3 text-sm font-medium text-gray-300 transition hover:bg-white/10"
-          >
-            Agents
-          </Link>
-
-          <Link
-            href="/en/automations"
-            className="block rounded-xl px-4 py-3 text-sm font-medium text-gray-300 transition hover:bg-white/10"
-          >
-            Automations
-          </Link>
-
-          <Link
-            href="/en/billing"
-            className="block rounded-xl px-4 py-3 text-sm font-medium text-gray-300 transition hover:bg-white/10"
-          >
-            Billing
-          </Link>
-
-          <Link
-            href="/en/settings"
-            className="block rounded-xl px-4 py-3 text-sm font-medium text-gray-300 transition hover:bg-white/10"
-          >
-            Settings
-          </Link>
-
-        </nav>
+    <aside className="w-64 min-h-screen bg-black text-white p-4 border-r border-zinc-800">
+      <div className="mb-8">
+        <h1 className="text-xl font-semibold">Orchestrator AI</h1>
+        <a href={`mailto:${email}`} className="text-zinc-500 text-sm">
+          {email}
+        </a>
       </div>
 
-      <div className="space-y-4">
-        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-          <p className="text-xs text-gray-400">Logged in as</p>
-          <p className="mt-1 break-all text-sm text-white">{email}</p>
-        </div>
+      <nav className="space-y-3">
+        <Link href={`/${locale}/dashboard`} className="block hover:text-white text-zinc-400">
+          Dashboard
+        </Link>
+
+        <Link href={`/${locale}/projects`} className="block hover:text-white text-zinc-400">
+          Projects
+        </Link>
+
+        <Link href={`/${locale}/automations`} className="block hover:text-white text-zinc-400">
+          Automações
+        </Link>
+
+        <Link href={`/${locale}/agents`} className="block hover:text-white text-zinc-400">
+          Agents
+        </Link>
+
+        <Link href={`/${locale}/billing`} className="block hover:text-white text-zinc-400">
+          Billing
+        </Link>
+
+        <Link href={`/${locale}/settings`} className="block hover:text-white text-zinc-400">
+          Settings
+        </Link>
 
         <button
           onClick={handleLogout}
-          className="w-full rounded-xl bg-white px-4 py-3 font-semibold text-black transition hover:opacity-90"
+          className="pt-6 text-red-500 cursor-pointer"
         >
           Logout
         </button>
-      </div>
-
+      </nav>
     </aside>
   );
 }

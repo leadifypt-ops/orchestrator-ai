@@ -1,64 +1,84 @@
-'use client';
+"use client";
 
-import {useState} from 'react';
-import {supabase} from '@/lib/supabase';
+import { useState } from "react";
+import { useRouter, useParams } from "next/navigation";
+import { supabase } from "@/lib/supabase-client";
 
 export default function SignupPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [message, setMessage] = useState('');
+  const router = useRouter();
+  const params = useParams();
+  const locale =
+    typeof params?.locale === "string" && params.locale
+      ? params.locale
+      : "pt";
 
-  async function handleSignup(e: React.FormEvent) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  async function handleSignup(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setMessage('');
+    setLoading(true);
+    setError("");
+    setSuccess("");
 
-    const {error} = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signUp({
       email,
-      password
+      password,
     });
 
     if (error) {
-      setMessage(error.message);
+      setError(error.message);
+      setLoading(false);
       return;
     }
 
-    setMessage('Conta criada com sucesso. Verifica o teu email.');
+    setSuccess("Conta criada com sucesso. Agora faz login.");
+    setLoading(false);
+
+    setTimeout(() => {
+      router.push(`/${locale}/login`);
+      router.refresh();
+    }, 1000);
   }
 
   return (
-    <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 p-8">
-        <h1 className="text-3xl font-bold mb-6">Create account</h1>
+    <div className="min-h-screen flex items-center justify-center px-4">
+      <form
+        onSubmit={handleSignup}
+        className="w-full max-w-sm space-y-4 rounded-xl border p-6"
+      >
+        <h1 className="text-2xl font-semibold">Criar conta</h1>
 
-        <form onSubmit={handleSignup} className="space-y-4">
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-xl border border-white/20 bg-transparent px-4 py-3 outline-none"
-          />
+        <input
+          type="email"
+          placeholder="Email"
+          className="w-full rounded border p-2"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
 
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-xl border border-white/20 bg-transparent px-4 py-3 outline-none"
-          />
+        <input
+          type="password"
+          placeholder="Password"
+          className="w-full rounded border p-2"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
 
-          <button
-            type="submit"
-            className="w-full rounded-xl bg-white px-4 py-3 font-semibold text-black"
-          >
-            Create account
-          </button>
-        </form>
+        {error ? <p className="text-sm text-red-500">{error}</p> : null}
+        {success ? <p className="text-sm text-green-600">{success}</p> : null}
 
-        {message && (
-          <p className="mt-4 text-sm text-gray-300">{message}</p>
-        )}
-      </div>
-    </main>
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full rounded bg-black p-2 text-white"
+        >
+          {loading ? "Criando..." : "Criar conta"}
+        </button>
+      </form>
+    </div>
   );
 }
