@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/server";
 
 type OpenRouterMessage = {
   role: "system" | "user";
@@ -12,6 +12,11 @@ type OpenRouterResponse = {
       content?: string;
     };
   }>;
+};
+
+type SubscriptionRow = {
+  plan_status: string | null;
+  plan_name: string | null;
 };
 
 const AUTOMATION_SYSTEM_PROMPT = `
@@ -61,20 +66,68 @@ function cleanJsonResponse(content: string): string {
 
 function safeParseAutomation(content: string) {
   const cleaned = cleanJsonResponse(content);
-  const parsed = JSON.parse(cleaned);
+  return JSON.parse(cleaned);
+}
 
-  return parsed;
+function hasActiveAccess(planStatus: string | null | undefined) {
+  return planStatus === "active" || planStatus === "trialing";
 }
 
 export async function POST(req: Request) {
   try {
+    const supabase = await createClient();
+
+    // 1) Verificar utilizador autenticado
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return NextResponse.json(
+        { error: "Não autenticado" },
+        { status: 401 }
+      );
+    }
+
+    // 2) Verificar subscrição/plano ativo
+    const { data: subscription, error: subscriptionError } = await supabase
+      .from("subscriptions")
+      .select("plan_status, plan_name")
+      .eq("user_id", user.id)
+      .maybeSingle<SubscriptionRow>();
+
+    if (subscriptionError) {
+      console.error("Erro ao verificar subscrição:", subscriptionError);
+
+      return NextResponse.json(
+        { error: "Erro ao verificar plano do utilizador" },
+        { status: 500 }
+      );
+    }
+
+    if (!subscription || !hasActiveAccess(subscription.plan_status)) {
+      return NextResponse.json(
+        {
+          error: "Plano necessário",
+          code: "PLAN_REQUIRED",
+        },
+        { status: 403 }
+      );
+    }
+
+    // 3) Ler prompt
     const body = await req.json();
     const prompt = body?.prompt;
 
-    if (!prompt) {
-      return NextResponse.json({ error: "Prompt em falta" }, { status: 400 });
+    if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
+      return NextResponse.json(
+        { error: "Prompt em falta" },
+        { status: 400 }
+      );
     }
 
+    // 4) Verificar OpenRouter key
     const apiKey = process.env.OPENROUTER_API_KEY;
 
     if (!apiKey) {
@@ -84,6 +137,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // 5) Preparar mensagens
     const messages: OpenRouterMessage[] = [
       {
         role: "system",
@@ -91,10 +145,11 @@ export async function POST(req: Request) {
       },
       {
         role: "user",
-        content: prompt,
+        content: prompt.trim(),
       },
     ];
 
+    // 6) Chamar OpenRouter
     const response = await fetch(
       "https://openrouter.ai/api/v1/chat/completions",
       {
@@ -111,8 +166,17 @@ export async function POST(req: Request) {
       }
     );
 
-    const data = (await response.json()) as OpenRouterResponse;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Erro OpenRouter:", errorText);
 
+      return NextResponse.json(
+        { error: "Erro na resposta da IA" },
+        { status: 500 }
+      );
+    }
+
+    const data = (await response.json()) as OpenRouterResponse;
     const content = data?.choices?.[0]?.message?.content;
 
     if (!content) {
@@ -122,14 +186,16 @@ export async function POST(req: Request) {
       );
     }
 
+    // 7) Fazer parse do JSON
     const automation = safeParseAutomation(content);
 
+    // 8) Resposta final
     return NextResponse.json({
       ok: true,
       automation,
     });
   } catch (error) {
-    console.error(error);
+    console.error("Erro ao gerar automação:", error);
 
     return NextResponse.json(
       {
