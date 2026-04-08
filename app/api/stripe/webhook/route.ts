@@ -9,10 +9,52 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY as string
 );
 
-export async function POST(req: Request) {
-  try {
-    const event = await req.json();
+function getCurrentPeriodEnd(value: unknown): string | null {
+  return typeof value === "number"
+    ? new Date(value * 1000).toISOString()
+    : null;
+}
 
+export async function POST(req: Request) {
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  if (!webhookSecret) {
+    console.log("❌ STRIPE_WEBHOOK_SECRET não definido");
+    return NextResponse.json(
+      { error: "Webhook secret não definido" },
+      { status: 500 }
+    );
+  }
+
+  const signature = req.headers.get("stripe-signature");
+
+  if (!signature) {
+    console.log("❌ Header stripe-signature em falta");
+    return NextResponse.json(
+      { error: "Stripe signature em falta" },
+      { status: 400 }
+    );
+  }
+
+  let event: Stripe.Event;
+
+  try {
+    const rawBody = await req.text();
+
+    event = stripe.webhooks.constructEvent(
+      rawBody,
+      signature,
+      webhookSecret
+    );
+  } catch (error) {
+    console.log("❌ Erro ao validar assinatura do webhook:", error);
+    return NextResponse.json(
+      { error: "Assinatura do webhook inválida" },
+      { status: 400 }
+    );
+  }
+
+  try {
     console.log("✅ Evento recebido no webhook:", event.type);
 
     if (event.type === "checkout.session.completed") {
@@ -41,12 +83,11 @@ export async function POST(req: Request) {
       if (subscriptionId) {
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
 
-        const currentPeriodEndRaw = (subscription as any).current_period_end;
-
-        currentPeriodEnd =
-          typeof currentPeriodEndRaw === "number"
-            ? new Date(currentPeriodEndRaw * 1000).toISOString()
-            : null;
+        currentPeriodEnd = getCurrentPeriodEnd(
+          (subscription as Stripe.Subscription & {
+            current_period_end?: number;
+          }).current_period_end
+        );
       }
 
       console.log("🧾 checkout.session.completed data:", {
@@ -96,26 +137,43 @@ export async function POST(req: Request) {
           ? subscription.customer
           : null;
 
-      const currentPeriodEndRaw = (subscription as any).current_period_end;
-      const currentPeriodEnd =
-        typeof currentPeriodEndRaw === "number"
-          ? new Date(currentPeriodEndRaw * 1000).toISOString()
+      const currentPeriodEnd = getCurrentPeriodEnd(
+        (subscription as Stripe.Subscription & {
+          current_period_end?: number;
+        }).current_period_end
+      );
+
+      const plan =
+        typeof subscription.metadata?.plan === "string"
+          ? subscription.metadata.plan
           : null;
 
       console.log("🔄 customer.subscription.updated:", {
         subscriptionId: subscription.id,
         customerId,
         status: subscription.status,
+        plan,
         currentPeriodEnd,
       });
 
+      const updatePayload: {
+        stripe_subscription_id: string;
+        plan_status: string;
+        current_period_end: string | null;
+        plan_name?: string | null;
+      } = {
+        stripe_subscription_id: subscription.id,
+        plan_status: subscription.status,
+        current_period_end: currentPeriodEnd,
+      };
+
+      if (plan) {
+        updatePayload.plan_name = plan;
+      }
+
       const { error } = await supabase
         .from("subscriptions")
-        .update({
-          stripe_subscription_id: subscription.id,
-          plan_status: subscription.status,
-          current_period_end: currentPeriodEnd,
-        })
+        .update(updatePayload)
         .eq("stripe_customer_id", customerId);
 
       if (error) {
@@ -133,17 +191,33 @@ export async function POST(req: Request) {
           ? subscription.customer
           : null;
 
+      const plan =
+        typeof subscription.metadata?.plan === "string"
+          ? subscription.metadata.plan
+          : null;
+
       console.log("🛑 customer.subscription.deleted:", {
         subscriptionId: subscription.id,
         customerId,
+        plan,
       });
+
+      const updatePayload: {
+        plan_status: string;
+        stripe_subscription_id: string;
+        plan_name?: string | null;
+      } = {
+        plan_status: "canceled",
+        stripe_subscription_id: subscription.id,
+      };
+
+      if (plan) {
+        updatePayload.plan_name = plan;
+      }
 
       const { error } = await supabase
         .from("subscriptions")
-        .update({
-          plan_status: "canceled",
-          stripe_subscription_id: subscription.id,
-        })
+        .update(updatePayload)
         .eq("stripe_customer_id", customerId);
 
       if (error) {

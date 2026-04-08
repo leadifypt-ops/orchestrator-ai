@@ -4,6 +4,20 @@ import { useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase-client";
 
+type GeneratedAutomation = {
+  projectName?: string;
+  businessType?: string;
+  goal?: string;
+  [key: string]: unknown;
+};
+
+type GenerateAutomationResponse = {
+  ok?: boolean;
+  automation?: GeneratedAutomation;
+  error?: string;
+  code?: string;
+};
+
 export default function NewProjectPage() {
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
@@ -24,7 +38,6 @@ export default function NewProjectPage() {
 
       if (!user) {
         alert("Utilizador não autenticado");
-        setLoading(false);
         return;
       }
 
@@ -36,11 +49,26 @@ export default function NewProjectPage() {
         body: JSON.stringify({ prompt }),
       });
 
-      const data = await res.json();
+      const data = (await res.json().catch(() => null)) as GenerateAutomationResponse | null;
+
+      if (res.status === 401) {
+        alert("Precisas de iniciar sessão");
+        return;
+      }
+
+      if (res.status === 403) {
+        alert("Precisas de um plano ativo para gerar automações");
+        router.push(`/${locale}/pricing`);
+        return;
+      }
+
+      if (!res.ok) {
+        alert(data?.error || "Erro ao gerar automação");
+        return;
+      }
 
       if (!data?.automation) {
         alert("Erro ao gerar automação");
-        setLoading(false);
         return;
       }
 
@@ -65,7 +93,6 @@ export default function NewProjectPage() {
       if (error || !created) {
         console.error(error);
         alert("Erro ao guardar automação");
-        setLoading(false);
         return;
       }
 
@@ -73,9 +100,9 @@ export default function NewProjectPage() {
     } catch (err) {
       console.error(err);
       alert("Erro inesperado");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   return (
