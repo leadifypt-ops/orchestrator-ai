@@ -14,7 +14,7 @@ export default function PricingPage() {
     const reason = searchParams.get("reason");
 
     if (reason === "plan-required") {
-      return "Para criar automações, precisas de um plano ativo.";
+      return "Escolhe um plano para começar a criar automações.";
     }
 
     return null;
@@ -69,8 +69,10 @@ export default function PricingPage() {
     <div className="min-h-screen bg-[#050505] text-white px-6 py-16">
       <div className="mx-auto max-w-7xl">
         {topMessage && (
-          <div className="mx-auto mb-8 max-w-4xl rounded-2xl border border-amber-400/20 bg-amber-400/10 px-5 py-4 text-center text-sm text-amber-200">
-            {topMessage}
+          <div className="mb-6 flex justify-center">
+            <div className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-4 py-1 text-sm text-cyan-200">
+              {topMessage}
+            </div>
           </div>
         )}
 
