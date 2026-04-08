@@ -1,11 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase-client";
 
 export default function PricingPage() {
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [error, setError] = useState("");
+
+  const searchParams = useSearchParams();
+
+  const topMessage = useMemo(() => {
+    const reason = searchParams.get("reason");
+
+    if (reason === "plan-required") {
+      return "Para criar automações, precisas de um plano ativo.";
+    }
+
+    return null;
+  }, [searchParams]);
 
   async function handleCheckout(
     plan: "setup" | "monthly" | "combo" | "founders"
@@ -55,8 +68,14 @@ export default function PricingPage() {
   return (
     <div className="min-h-screen bg-[#050505] text-white px-6 py-16">
       <div className="mx-auto max-w-7xl">
+        {topMessage && (
+          <div className="mx-auto mb-8 max-w-4xl rounded-2xl border border-amber-400/20 bg-amber-400/10 px-5 py-4 text-center text-sm text-amber-200">
+            {topMessage}
+          </div>
+        )}
+
         <div className="mx-auto mb-14 max-w-3xl text-center">
-          <div className="mb-4 inline-flex rounded-full border border-white/10 bg-white/5 px-4 py-1 text-sm text-white/70">
+          <div className="mb-4 inline-flex rounded-full border border-cyan-400/20 bg-cyan-400/10 px-4 py-1 text-sm text-cyan-200">
             Sistema que transforma mensagens em clientes
           </div>
 
@@ -73,7 +92,7 @@ export default function PricingPage() {
         </div>
 
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8 backdrop-blur">
+          <div className="rounded-3xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-white/[0.02] p-8 backdrop-blur">
             <div className="mb-6">
               <p className="text-sm uppercase tracking-[0.18em] text-white/40">
                 Mensal
@@ -112,15 +131,15 @@ export default function PricingPage() {
             </button>
           </div>
 
-          <div className="relative rounded-3xl border border-blue-500/40 bg-gradient-to-b from-blue-500/15 via-blue-500/5 to-white/[0.03] p-8 shadow-2xl shadow-blue-500/10">
+          <div className="relative scale-[1.02] rounded-3xl border border-fuchsia-400/40 bg-gradient-to-b from-fuchsia-500/25 via-purple-500/15 to-cyan-500/10 p-8 shadow-[0_0_40px_rgba(217,70,239,0.18)]">
             <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-              <div className="rounded-full border border-blue-400/30 bg-blue-600 px-4 py-1 text-xs font-medium text-white">
+              <div className="rounded-full border border-fuchsia-300/30 bg-gradient-to-r from-fuchsia-500 to-cyan-500 px-4 py-1 text-xs font-semibold text-white shadow-lg">
                 MAIS VANTAJOSO
               </div>
             </div>
 
             <div className="mb-6 mt-4">
-              <p className="text-sm uppercase tracking-[0.18em] text-blue-200/70">
+              <p className="text-sm uppercase tracking-[0.18em] text-fuchsia-100/80">
                 Programa Fundadores · 15 vagas
               </p>
 
@@ -128,7 +147,7 @@ export default function PricingPage() {
                 Entrada completa
               </h2>
 
-              <p className="mt-3 text-sm leading-6 text-white/70">
+              <p className="mt-3 text-sm leading-6 text-white/80">
                 Criado para os primeiros clientes que querem começar já com a
                 estrutura montada, implementação feita por nós e acesso contínuo
                 à plataforma.
@@ -137,9 +156,9 @@ export default function PricingPage() {
 
             <div className="mb-6 space-y-4">
               <div>
-                <p className="text-sm text-white/50">Setup inicial</p>
+                <p className="text-sm text-white/60">Setup inicial</p>
                 <div className="mt-1 flex items-center gap-3">
-                  <span className="text-sm text-white/35 line-through">
+                  <span className="text-sm text-white/40 line-through">
                     179,99€
                   </span>
                   <span className="text-4xl font-semibold text-white">130€</span>
@@ -147,26 +166,26 @@ export default function PricingPage() {
               </div>
 
               <div>
-                <p className="text-sm text-white/50">Acesso mensal</p>
+                <p className="text-sm text-white/60">Acesso mensal</p>
                 <div className="mt-1 flex items-center gap-3">
-                  <span className="text-sm text-white/35 line-through">
+                  <span className="text-sm text-white/40 line-through">
                     49,99€
                   </span>
                   <span className="text-3xl font-semibold text-white">
                     39,99€
                   </span>
-                  <span className="text-sm text-white/45">/mês</span>
+                  <span className="text-sm text-white/55">/mês</span>
                 </div>
               </div>
             </div>
 
-            <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm leading-6 text-white/75">
+            <div className="mb-6 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-white/80">
               Esta condição especial está disponível apenas no formato completo:
-              setup inicial + acesso mensal contínuo. Depois desta fase, mantém-se
-              apenas o valor normal do combo.
+              setup inicial + acesso mensal contínuo. Depois desta fase,
+              mantém-se apenas o valor normal do combo.
             </div>
 
-            <ul className="mb-8 space-y-3 text-sm text-white/80">
+            <ul className="mb-8 space-y-3 text-sm text-white/85">
               <li>✔ Setup completo feito por nós</li>
               <li>✔ Acesso contínuo à app</li>
               <li>✔ Estrutura inicial pronta</li>
@@ -178,15 +197,15 @@ export default function PricingPage() {
             <button
               onClick={() => handleCheckout("founders")}
               disabled={loadingPlan !== null}
-              className="w-full rounded-2xl bg-blue-600 px-5 py-3 font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-2xl bg-white px-5 py-3 font-semibold text-black transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loadingPlan === "founders" ? "A abrir..." : "Garantir vaga"}
             </button>
           </div>
 
-          <div className="relative rounded-3xl border border-white/10 bg-white/[0.03] p-8 backdrop-blur">
+          <div className="relative rounded-3xl border border-cyan-400/15 bg-gradient-to-b from-cyan-500/[0.08] to-white/[0.02] p-8 backdrop-blur">
             <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-              <div className="rounded-full border border-white/10 bg-white/10 px-4 py-1 text-xs font-medium text-white/80">
+              <div className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-4 py-1 text-xs font-medium text-cyan-100">
                 VALOR NORMAL
               </div>
             </div>
@@ -237,7 +256,7 @@ export default function PricingPage() {
             </button>
           </div>
 
-          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8 backdrop-blur">
+          <div className="rounded-3xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-white/[0.02] p-8 backdrop-blur">
             <div className="mb-6">
               <p className="text-sm uppercase tracking-[0.18em] text-white/40">
                 Setup
