@@ -21,8 +21,10 @@ export default function Sidebar({ email }: SidebarProps) {
   return (
     <aside className="w-64 min-h-screen bg-black text-white p-4 border-r border-zinc-800">
       <div className="mb-8">
-        <h1 className="text-xl font-semibold">Orchestrator AI</h1>
-        <a href={`mailto:${email}`} className="text-zinc-500 text-sm">
+        <h1 className="text-xl font-semibold">Find Dining</h1>
+        <p className="text-zinc-500 text-sm">Backoffice restaurante</p>
+
+        <a href={`mailto:${email}`} className="block text-zinc-600 text-xs mt-1">
           {email}
         </a>
       </div>
@@ -33,30 +35,30 @@ export default function Sidebar({ email }: SidebarProps) {
         </Link>
 
         <Link href={`/${locale}/projects`} className="block hover:text-white text-zinc-400">
-          Projects
+          Restaurantes
         </Link>
 
         <Link href={`/${locale}/automations`} className="block hover:text-white text-zinc-400">
-          Automações
+          Reservas
         </Link>
 
-        <Link href={`/${locale}/agents`} className="block hover:text-white text-zinc-400">
-          Agents
+        <Link href={`/${locale}/leads`} className="block hover:text-white text-zinc-400">
+          Clientes
         </Link>
 
         <Link href={`/${locale}/billing`} className="block hover:text-white text-zinc-400">
-          Billing
+          Plano
         </Link>
 
         <Link href={`/${locale}/settings`} className="block hover:text-white text-zinc-400">
-          Settings
+          Definições
         </Link>
 
         <button
           onClick={handleLogout}
           className="pt-6 text-red-500 cursor-pointer"
         >
-          Logout
+          Sair
         </button>
       </nav>
     </aside>

@@ -1,128 +1,74 @@
-"use client";
+import Link from "next/link";
 
-import { useState } from "react";
-import { useRouter, useParams } from "next/navigation";
-import { supabase } from "@/lib/supabase-client";
+const restaurants = [
+  {
+    id: "feitoria",
+    name: "Feitoria",
+    chef: "André Cruz",
+    city: "Lisboa",
+    michelin: "1 estrela Michelin",
+    description:
+      "Experiência gastronómica contemporânea com foco no produto português, vinho e serviço de excelência.",
+  },
+];
 
-type GeneratedAutomation = {
-  projectName?: string;
-  businessType?: string;
-  goal?: string;
-  [key: string]: unknown;
-};
-
-type GenerateAutomationResponse = {
-  ok?: boolean;
-  automation?: GeneratedAutomation;
-  error?: string;
-  code?: string;
-};
-
-export default function NewProjectPage() {
-  const [prompt, setPrompt] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const router = useRouter();
-  const params = useParams();
-  const locale = params?.locale as string;
-
-  async function generate() {
-    if (!prompt.trim()) return;
-
-    setLoading(true);
-
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        alert("Utilizador não autenticado");
-        return;
-      }
-
-      const res = await fetch("/api/generate-automation", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ prompt }),
-      });
-
-      const data = (await res.json().catch(() => null)) as GenerateAutomationResponse | null;
-
-      if (res.status === 401) {
-        alert("Precisas de iniciar sessão");
-        return;
-      }
-
-      if (res.status === 403) {
-        alert("Precisas de um plano ativo para gerar automações");
-        router.push(`/${locale}/pricing`);
-        return;
-      }
-
-      if (!res.ok) {
-        alert(data?.error || "Erro ao gerar automação");
-        return;
-      }
-
-      if (!data?.automation) {
-        alert("Erro ao gerar automação");
-        return;
-      }
-
-      const automation = data.automation;
-
-      const { data: created, error } = await supabase
-        .from("automations")
-        .insert({
-          user_id: user.id,
-          name: automation.projectName || "Sem nome",
-          project_name: automation.projectName || "Sem nome",
-          prompt: prompt,
-          business_type: automation.businessType || null,
-          goal: automation.goal || null,
-          status: "active",
-          webhook_url: process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL || null,
-          config: automation || {},
-        })
-        .select()
-        .single();
-
-      if (error || !created) {
-        console.error(error);
-        alert("Erro ao guardar automação");
-        return;
-      }
-
-      router.push(`/${locale}/automations/${created.id}`);
-    } catch (err) {
-      console.error(err);
-      alert("Erro inesperado");
-    } finally {
-      setLoading(false);
-    }
-  }
-
+export default function RestaurantsPage() {
   return (
-    <div className="p-8 max-w-xl">
-      <h1 className="text-xl font-bold mb-4">Create Project</h1>
+    <div className="p-8">
+      <div className="flex items-start justify-between mb-8">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 mb-3">
+            Find Dining
+          </p>
 
-      <textarea
-        value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
-        placeholder="Create automation for Instagram..."
-        className="w-full h-40 bg-zinc-900 border border-white/10 rounded-lg p-4"
-      />
+          <h1 className="text-3xl font-bold mb-2">Restaurantes</h1>
 
-      <button
-        onClick={generate}
-        disabled={loading}
-        className="mt-4 bg-white text-black px-6 py-3 rounded-lg disabled:opacity-50"
-      >
-        {loading ? "Generating..." : "Generate Project"}
-      </button>
+          <p className="text-zinc-500">
+            Gere os restaurantes disponíveis na plataforma.
+          </p>
+        </div>
+
+        <Link
+          href="/pt/projects/new"
+          className="bg-white text-black px-5 py-3 rounded-lg text-sm font-medium"
+        >
+          Novo Restaurante
+        </Link>
+      </div>
+
+      <div className="grid gap-4 max-w-4xl">
+        {restaurants.map((restaurant) => (
+          <div
+            key={restaurant.id}
+            className="border border-white/10 rounded-xl bg-zinc-950 p-5"
+          >
+            <div className="flex items-start justify-between gap-6">
+              <div>
+                <h2 className="text-xl font-semibold">{restaurant.name}</h2>
+
+                <p className="text-sm text-zinc-500 mt-1">
+                  Chef: {restaurant.chef}
+                </p>
+
+                <p className="text-sm text-zinc-500">
+                  {restaurant.city} · {restaurant.michelin}
+                </p>
+
+                <p className="text-zinc-400 mt-4 max-w-2xl">
+                  {restaurant.description}
+                </p>
+              </div>
+
+              <Link
+                href={`/pt/restaurants/${restaurant.id}`}
+                className="border border-white/10 px-4 py-2 rounded-lg text-sm hover:bg-white hover:text-black"
+              >
+                Ver Restaurante
+              </Link>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
