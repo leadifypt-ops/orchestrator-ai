@@ -9,6 +9,9 @@ export default async function AppLayout({
 }: {
   children: ReactNode;
 }) {
+  const autoDispatchEnabled =
+    process.env.NEXT_PUBLIC_ENABLE_AUTO_DISPATCH === "true";
+
   const supabase = await createClient();
 
   const {
@@ -21,7 +24,7 @@ export default async function AppLayout({
 
   return (
     <div className="flex min-h-screen bg-black text-white">
-      <AutoDispatch />
+      <AutoDispatch enabled={autoDispatchEnabled} />
 
       <Sidebar email={user.email || ""} />
 

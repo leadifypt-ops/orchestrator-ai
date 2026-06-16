@@ -2,8 +2,14 @@
 
 import { useEffect } from "react";
 
-export default function AutoDispatch() {
+type AutoDispatchProps = {
+  enabled?: boolean;
+};
+
+export default function AutoDispatch({ enabled = false }: AutoDispatchProps) {
   useEffect(() => {
+    if (!enabled) return;
+
     let running = false;
 
     const interval = setInterval(async () => {
@@ -23,7 +29,7 @@ export default function AutoDispatch() {
     }, 10000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [enabled]);
 
   return null;
 }
