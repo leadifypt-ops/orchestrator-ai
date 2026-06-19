@@ -41,9 +41,40 @@ export default async function RestaurantPage({ params }: RestaurantPageProps) {
   const teamImage = isFeitoria ? "/assets/feitoria-v1/team-feitoria.jpg" : null;
   const kitchenImage = isFeitoria ? "/assets/feitoria-v1/kitchen-behind-scenes.jpg" : null;
   const chefName = restaurant.chef_name || "Chef André Cruz";
+  const reservationHref = isFeitoria
+    ? `/${locale}/restaurants/feitoria/reserve`
+    : null;
 
   return (
     <main className="min-h-screen text-white" style={{ backgroundColor: primaryColor }}>
+      <header className="absolute inset-x-0 top-0 z-20 border-b border-white/10 bg-black/15 backdrop-blur-sm">
+        <div className="mx-auto flex h-20 max-w-[90rem] items-center justify-between px-6 md:px-12 lg:px-20">
+          <Link
+            href={`/${locale}`}
+            className="text-[0.72rem] font-semibold uppercase tracking-[0.34em] text-white"
+          >
+            Find Dining
+          </Link>
+          <nav
+            aria-label="Public navigation"
+            className="flex items-center gap-5 text-[0.65rem] font-semibold uppercase tracking-[0.14em]"
+          >
+            <Link
+              href={`/${locale}/restaurants`}
+              className="hidden text-white/65 transition hover:text-white sm:block"
+            >
+              Explore Restaurants
+            </Link>
+            <Link
+              href={`/${locale}/business/dashboard`}
+              className="rounded-full border border-white/25 px-4 py-2 text-white transition hover:border-white hover:bg-white hover:text-black"
+            >
+              For Restaurants
+            </Link>
+          </nav>
+        </div>
+      </header>
+
       {/* Hero Section with Background Image */}
       <section className="relative flex min-h-[72vh] sm:min-h-[75vh] md:min-h-[85vh] items-end overflow-hidden">
         <div
@@ -55,12 +86,12 @@ export default async function RestaurantPage({ params }: RestaurantPageProps) {
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/30" />
 
-        <div className="relative z-10 w-full px-6 pb-10 pt-16 sm:pb-14 md:px-12 md:pb-16 lg:px-20">
+        <div className="relative z-10 w-full px-6 pb-10 pt-32 sm:pb-14 md:px-12 md:pb-16 lg:px-20">
           <Link
             href={`/${locale}/restaurants`}
             className="mb-12 inline-block text-xs font-semibold uppercase tracking-[0.2em] text-white/60 hover:text-white transition"
           >
-            ← Back to restaurants
+            Explore Restaurants
           </Link>
 
           <div
@@ -77,17 +108,30 @@ export default async function RestaurantPage({ params }: RestaurantPageProps) {
           <p className="mt-6 text-lg text-white/70">{restaurant.location}</p>
 
           <div className="mt-8 grid gap-3 sm:mt-10 sm:flex sm:flex-wrap sm:gap-4">
-            <button
-              className="w-full rounded-full px-8 py-3 text-sm font-semibold uppercase tracking-[0.1em] transition hover:opacity-80 sm:w-auto"
-              style={{ backgroundColor: accentColor, color: primaryColor }}
-            >
-              Reserve Experience
-            </button>
+            {reservationHref ? (
+              <Link
+                href={reservationHref}
+                className="inline-flex w-full items-center justify-center rounded-full px-8 py-3 text-sm font-semibold uppercase tracking-[0.1em] transition hover:opacity-85 sm:w-auto"
+                style={{ backgroundColor: accentColor, color: primaryColor }}
+              >
+                Reserve Experience
+              </Link>
+            ) : (
+              <span className="inline-flex w-full cursor-not-allowed items-center justify-center rounded-full border border-white/20 px-8 py-3 text-sm font-semibold uppercase tracking-[0.1em] text-white/40 sm:w-auto">
+                Reserve Experience
+              </span>
+            )}
 
-            <button className="w-full rounded-full border border-white/30 px-8 py-3 text-sm font-semibold uppercase tracking-[0.1em] text-white hover:bg-white/10 transition sm:w-auto">
-              View Menus
-            </button>
+            <Link
+              href={`/${locale}/restaurants`}
+              className="inline-flex w-full items-center justify-center rounded-full border border-white/30 px-8 py-3 text-sm font-semibold uppercase tracking-[0.1em] text-white transition hover:bg-white/10 sm:w-auto"
+            >
+              Explore Restaurants
+            </Link>
           </div>
+          <p className="mt-3 text-xs text-white/55">
+            Reservation requests are reviewed by the restaurant.
+          </p>
         </div>
       </section>
 
@@ -478,23 +522,58 @@ export default async function RestaurantPage({ params }: RestaurantPageProps) {
       {/* Final CTA Section */}
       <section className="px-6 py-12 sm:py-16 md:py-20 md:px-12 lg:py-28 lg:px-20 border-t border-white/10">
             <h2 className="mt-6 text-4xl md:text-5xl font-light leading-tight">
-              Reserve Your Feitoria Experience
+              A table at Feitoria, thoughtfully prepared.
             </h2>
 
             <p className="mt-8 text-lg text-white/70 font-light leading-8">
               Share your preferences, dietary needs and wine interests before arrival, allowing the team to prepare a more personalised experience.
             </p>
 
-            <button
-              className="mt-10 rounded-full px-10 py-4 text-sm font-semibold uppercase tracking-[0.1em] transition hover:opacity-80"
-              style={{ backgroundColor: accentColor, color: primaryColor }}
-            >
-              Reserve Your Experience
-            </button>
+            {reservationHref ? (
+              <Link
+                href={reservationHref}
+                className="mt-10 inline-flex rounded-full px-10 py-4 text-sm font-semibold uppercase tracking-[0.1em] transition hover:opacity-85"
+                style={{ backgroundColor: accentColor, color: primaryColor }}
+              >
+                Reserve Experience
+              </Link>
+            ) : (
+              <span className="mt-10 inline-flex cursor-not-allowed rounded-full border border-white/20 px-10 py-4 text-sm font-semibold uppercase tracking-[0.1em] text-white/40">
+                Reserve Experience
+              </span>
+            )}
+            <p className="mt-3 text-xs text-white/55">
+              Reservation requests are reviewed by the restaurant.
+            </p>
       </section>
 
-      {/* Footer Spacing */}
-      <div className="h-20" />
+      <footer className="border-t border-white/10 px-6 py-8 md:px-12 lg:px-20">
+        <div className="mx-auto flex max-w-[90rem] flex-col justify-between gap-5 text-[0.68rem] text-white/40 sm:flex-row">
+          <Link
+            href={`/${locale}`}
+            className="font-semibold uppercase tracking-[0.28em] text-white"
+          >
+            Find Dining
+          </Link>
+          <div className="flex flex-wrap gap-5">
+            <Link className="transition hover:text-white" href={`/${locale}`}>
+              Home
+            </Link>
+            <Link
+              className="transition hover:text-white"
+              href={`/${locale}/restaurants`}
+            >
+              Explore Restaurants
+            </Link>
+            <Link
+              className="transition hover:text-white"
+              href={`/${locale}/business/dashboard`}
+            >
+              For Restaurants
+            </Link>
+          </div>
+        </div>
+      </footer>
     </main>
   );
 }

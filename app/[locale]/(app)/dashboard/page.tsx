@@ -1,84 +1,290 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 
-type Lead = {
+type DashboardPageProps = {
+  params: Promise<{
+    locale: string;
+  }>;
+};
+
+type ReservationPayload = {
+  party_size?: string | null;
+  requested_date?: string | null;
+  requested_time?: string | null;
+  occasion?: string | null;
+  restaurant_or_experience?: string | null;
+};
+
+type ReservationRequest = {
   id: string;
   name: string | null;
   phone: string | null;
   source: string | null;
   service: string | null;
   status: string | null;
-  value: number | null;
+  channel?: string | null;
+  message?: string | null;
+  instagram?: string | null;
+  whatsapp?: string | null;
+  restaurant_name?: string | null;
+  restaurant?: string | null;
+  requested_experience?: string | null;
+  requested_date?: string | null;
+  requested_time?: string | null;
+  party_size?: number | string | null;
+  dietary_notes?: string | null;
+  occasion?: string | null;
+  payload?: ReservationPayload | null;
   created_at: string | null;
 };
 
-function formatEuro(value: number) {
-  return new Intl.NumberFormat("pt-PT", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
+type GuestDietaryProfileRow = {
+  allergies: string[] | null;
+  intolerances: string[] | null;
+  dietary_restrictions: string[] | null;
+  dislikes: string[] | null;
+  wine_preferences: string | null;
+  notes: string | null;
+};
 
-function getLast7DaysLeads(leads: Lead[]) {
-  const now = new Date();
-  const days: { label: string; count: number }[] = [];
+type ReservationGuestRow = {
+  id: string;
+  reservation_id: string;
+  full_name: string | null;
+  guest_position: number;
+  is_host: boolean;
+  guest_dietary_profiles: GuestDietaryProfileRow[] | null;
+};
 
-  for (let i = 6; i >= 0; i--) {
-    const day = new Date(now);
-    day.setDate(now.getDate() - i);
-
-    const label = day.toLocaleDateString("pt-PT", {
-      day: "2-digit",
-      month: "2-digit",
-    });
-
-    const count = leads.filter((lead) => {
-      if (!lead.created_at) return false;
-      const d = new Date(lead.created_at);
-      return d.toDateString() === day.toDateString();
-    }).length;
-
-    days.push({ label, count });
-  }
-
-  return days;
-}
-
-function getLast6MonthsRevenue(leads: Lead[]) {
-  const now = new Date();
-  const months: { label: string; value: number }[] = [];
-
-  for (let i = 5; i >= 0; i--) {
-    const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
-
-    const label = monthDate.toLocaleDateString("pt-PT", {
-      month: "short",
-    });
-
-    const value = leads
-      .filter((lead) => {
-        if (!lead.created_at) return false;
-        if (lead.status !== "closed") return false;
-
-        const d = new Date(lead.created_at);
-
-        return (
-          d.getMonth() === monthDate.getMonth() &&
-          d.getFullYear() === monthDate.getFullYear()
-        );
-      })
-      .reduce((sum, lead) => sum + (Number(lead.value) || 0), 0);
-
-    months.push({ label, value });
-  }
-
-  return months;
-}
+type ReservationBriefing = {
+  guestCount: number;
+  alertCount: number;
+  allergies: string[];
+  intolerances: string[];
+  dietaryRestrictions: string[];
+  dislikes: string[];
+  winePreferences: string[];
+  notes: string[];
+};
 
 export const dynamic = "force-dynamic";
 
-export default async function DashboardPage() {
+function getStatusLabel(status?: string | null) {
+  const labels: Record<string, string> = {
+    new: "New request",
+    contacted: "Awaiting confirmation",
+    active: "Awaiting confirmation",
+    qualified: "Confirmed interest",
+    converted: "Confirmed",
+    booked: "Confirmed",
+    lost: "Cancelled / No-show risk",
+    closed: "Service completed",
+  };
+
+  return labels[String(status || "new").toLowerCase()] || "New request";
+}
+
+function getLocalDateKey(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatDisplayDate(value?: string | null) {
+  if (!value) return "Date not set";
+
+  return new Date(`${value}T12:00:00`).toLocaleDateString("pt-PT", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function getRequestedDate(request: ReservationRequest) {
+  return request.requested_date || request.payload?.requested_date || null;
+}
+
+function getRequestedTime(request: ReservationRequest) {
+  return request.requested_time || request.payload?.requested_time || null;
+}
+
+function getPartySize(request: ReservationRequest) {
+  return request.party_size || request.payload?.party_size || null;
+}
+
+function getOccasion(request: ReservationRequest) {
+  return request.occasion || request.payload?.occasion || null;
+}
+
+function getExperienceName(request: ReservationRequest) {
+  return (
+    request.requested_experience ||
+    request.service ||
+    request.payload?.restaurant_or_experience ||
+    request.restaurant_name ||
+    request.restaurant ||
+    "Dining experience to confirm"
+  );
+}
+
+function isPendingConfirmation(request: ReservationRequest) {
+  return ["new", "contacted", "active", "qualified"].includes(
+    String(request.status || "new").toLowerCase()
+  );
+}
+
+function getNoShowRisk(request: ReservationRequest) {
+  if (request.status === "lost") return true;
+
+  return !request.phone && !request.whatsapp && !request.instagram;
+}
+
+function summarizeValues(values: string[]) {
+  if (values.length === 0) return "None recorded";
+  if (values.length <= 3) return values.join(", ");
+
+  return `${values.slice(0, 3).join(", ")} +${values.length - 3}`;
+}
+
+function makeEmptyBriefing(): ReservationBriefing {
+  return {
+    guestCount: 0,
+    alertCount: 0,
+    allergies: [],
+    intolerances: [],
+    dietaryRestrictions: [],
+    dislikes: [],
+    winePreferences: [],
+    notes: [],
+  };
+}
+
+function buildBriefingMap(guests: ReservationGuestRow[]) {
+  const map = new Map<string, ReservationBriefing>();
+
+  for (const guest of guests) {
+    const briefing = map.get(guest.reservation_id) || makeEmptyBriefing();
+    const profile = guest.guest_dietary_profiles?.[0] || null;
+    const guestName = guest.full_name || `Guest ${guest.guest_position}`;
+
+    briefing.guestCount += 1;
+
+    const allergies = profile?.allergies || [];
+    const intolerances = profile?.intolerances || [];
+    const dietaryRestrictions = profile?.dietary_restrictions || [];
+
+    briefing.allergies.push(...allergies.map((item) => `${guestName}: ${item}`));
+    briefing.intolerances.push(
+      ...intolerances.map((item) => `${guestName}: ${item}`)
+    );
+    briefing.dietaryRestrictions.push(
+      ...dietaryRestrictions.map((item) => `${guestName}: ${item}`)
+    );
+    briefing.dislikes.push(
+      ...(profile?.dislikes || []).map((item) => `${guestName}: ${item}`)
+    );
+
+    if (profile?.wine_preferences?.trim()) {
+      briefing.winePreferences.push(
+        `${guestName}: ${profile.wine_preferences.trim()}`
+      );
+    }
+
+    if (profile?.notes?.trim()) {
+      briefing.notes.push(`${guestName}: ${profile.notes.trim()}`);
+    }
+
+    briefing.alertCount +=
+      allergies.length + intolerances.length + dietaryRestrictions.length;
+
+    map.set(guest.reservation_id, briefing);
+  }
+
+  return map;
+}
+
+function ReservationServiceItem({
+  locale,
+  request,
+  briefing,
+}: {
+  locale: string;
+  request: ReservationRequest;
+  briefing: ReservationBriefing;
+}) {
+  const requestedTime = getRequestedTime(request);
+  const requestedDate = getRequestedDate(request);
+  const partySize = getPartySize(request);
+  const occasion = getOccasion(request);
+  const dietarySummary = [
+    ...briefing.allergies,
+    ...briefing.intolerances,
+    ...briefing.dietaryRestrictions,
+  ];
+
+  return (
+    <article className="rounded-2xl border border-white/10 bg-black/25 p-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-sm text-zinc-200">
+              {requestedTime || "Time not set"}
+            </span>
+            <h3 className="text-lg font-semibold text-white">
+              {request.name || "Unnamed guest"}
+            </h3>
+          </div>
+
+          <div className="mt-3 grid gap-2 text-sm text-zinc-400 sm:grid-cols-2">
+            <p>
+              <span className="text-zinc-600">Experience:</span>{" "}
+              {getExperienceName(request)}
+            </p>
+            <p>
+              <span className="text-zinc-600">Party:</span>{" "}
+              {partySize || "Not specified"}
+            </p>
+            <p>
+              <span className="text-zinc-600">Status:</span>{" "}
+              {getStatusLabel(request.status)}
+            </p>
+            <p>
+              <span className="text-zinc-600">Date:</span>{" "}
+              {formatDisplayDate(requestedDate)}
+            </p>
+          </div>
+
+          {occasion ? (
+            <p className="mt-3 text-sm text-amber-200">
+              Occasion: {occasion}
+            </p>
+          ) : null}
+
+          <p className="mt-3 text-sm leading-6 text-zinc-400">
+            Dietary alerts:{" "}
+            <span className={dietarySummary.length ? "text-red-300" : ""}>
+              {dietarySummary.length
+                ? summarizeValues(dietarySummary)
+                : "None recorded"}
+            </span>
+          </p>
+        </div>
+
+        <Link
+          href={`/${locale}/reservations/${request.id}`}
+          className="shrink-0 rounded-xl bg-white px-4 py-2 text-center text-sm font-medium text-black"
+        >
+          Open briefing
+        </Link>
+      </div>
+    </article>
+  );
+}
+
+export default async function DashboardPage({ params }: DashboardPageProps) {
+  const { locale } = await params;
   const supabase = await createClient();
 
   const {
@@ -87,266 +293,478 @@ export default async function DashboardPage() {
 
   const { data: leads = [] } = await supabase
     .from("leads")
-    .select("id, name, phone, source, service, status, value, created_at")
+    .select("*")
     .eq("user_id", user?.id)
     .order("created_at", { ascending: false });
 
-  const safeLeads = (leads as Lead[]) ?? [];
-  const now = new Date();
+  const reservationRequests = (leads as ReservationRequest[]) ?? [];
+  const reservationIds = reservationRequests.map((request) => request.id);
 
-  const leadsToday = safeLeads.filter((lead) => {
-    if (!lead.created_at) return false;
-    return new Date(lead.created_at).toDateString() === now.toDateString();
-  }).length;
+  const { data: guestRows = [] } = reservationIds.length
+    ? await supabase
+        .from("reservation_guests")
+        .select(
+          `
+            id,
+            reservation_id,
+            full_name,
+            guest_position,
+            is_host,
+            guest_dietary_profiles (
+              allergies,
+              intolerances,
+              dietary_restrictions,
+              dislikes,
+              wine_preferences,
+              notes
+            )
+          `
+        )
+        .in("reservation_id", reservationIds)
+    : { data: [] };
 
-  const leadsWeek = safeLeads.filter((lead) => {
-    if (!lead.created_at) return false;
-    const diff = now.getTime() - new Date(lead.created_at).getTime();
-    return diff <= 7 * 24 * 60 * 60 * 1000;
-  }).length;
+  const briefingByReservation = buildBriefingMap(
+    (guestRows as ReservationGuestRow[]) || []
+  );
 
-  const leadsMonth = safeLeads.filter((lead) => {
-    if (!lead.created_at) return false;
-    const d = new Date(lead.created_at);
+  const todayKey = getLocalDateKey(new Date());
+  const datedReservations = reservationRequests.filter(getRequestedDate);
+  const todaysReservations = datedReservations
+    .filter((request) => getRequestedDate(request) === todayKey)
+    .sort((a, b) =>
+      String(getRequestedTime(a) || "99:99").localeCompare(
+        String(getRequestedTime(b) || "99:99")
+      )
+    );
+
+  const upcomingReservations = datedReservations
+    .filter((request) => {
+      const requestedDate = getRequestedDate(request);
+      return !!requestedDate && requestedDate > todayKey;
+    })
+    .sort((a, b) => {
+      const dateCompare = String(getRequestedDate(a)).localeCompare(
+        String(getRequestedDate(b))
+      );
+
+      if (dateCompare !== 0) return dateCompare;
+
+      return String(getRequestedTime(a) || "99:99").localeCompare(
+        String(getRequestedTime(b) || "99:99")
+      );
+    })
+    .slice(0, 6);
+
+  const pendingConfirmations = reservationRequests.filter(isPendingConfirmation);
+  const noShowRisk = reservationRequests.filter(getNoShowRisk);
+  const specialOccasions = reservationRequests.filter(getOccasion);
+  const criticalDietaryAlerts = reservationRequests.filter((request) => {
+    const briefing =
+      briefingByReservation.get(request.id) || makeEmptyBriefing();
+    return briefing.alertCount > 0 || !!request.dietary_notes;
+  });
+
+  const totalGuestProfiles = Array.from(briefingByReservation.values()).reduce(
+    (sum, briefing) => sum + briefing.guestCount,
+    0
+  );
+
+  const overviewCards = [
+    {
+      label: "Today",
+      value: todaysReservations.length,
+      href: `/${locale}/reservations/new`,
+      action: "Add reservation",
+      helper: "Build today's service list",
+    },
+    {
+      label: "Pending confirmations",
+      value: pendingConfirmations.length,
+      href: `/${locale}/reservations`,
+      action: "Confirm requests",
+      helper: "Move guests toward service",
+    },
+    {
+      label: "Critical dietary alerts",
+      value: criticalDietaryAlerts.length,
+      href: criticalDietaryAlerts[0]
+        ? `/${locale}/reservations/${criticalDietaryAlerts[0].id}`
+        : `/${locale}/reservations`,
+      action: "Review alerts",
+      helper: "Prepare kitchen briefing",
+    },
+    {
+      label: "Special occasions",
+      value: specialOccasions.length,
+      href: specialOccasions[0]
+        ? `/${locale}/reservations/${specialOccasions[0].id}`
+        : `/${locale}/reservations`,
+      action: "Review occasions",
+      helper: "Prepare service touches",
+    },
+    {
+      label: "No-show risk",
+      value: noShowRisk.length,
+      href: `/${locale}/reservations`,
+      action: "Check risk",
+      helper: "Look for missing contacts",
+    },
+    {
+      label: "Guest profiles",
+      value: totalGuestProfiles,
+      href: `/${locale}/guests`,
+      action: "Open profiles",
+      helper: "Review guest context",
+    },
+  ];
+
+  const serviceBriefingCount = reservationRequests.filter((request) => {
+    const briefing =
+      briefingByReservation.get(request.id) || makeEmptyBriefing();
     return (
-      d.getMonth() === now.getMonth() &&
-      d.getFullYear() === now.getFullYear()
+      briefing.winePreferences.length > 0 ||
+      briefing.dislikes.length > 0 ||
+      briefing.notes.length > 0 ||
+      !!getOccasion(request)
     );
   }).length;
 
-  const contacted = safeLeads.filter((lead) => lead.status === "contacted").length;
-  const qualified = safeLeads.filter((lead) => lead.status === "qualified").length;
-  const booked = safeLeads.filter((lead) => lead.status === "booked").length;
-  const closed = safeLeads.filter((lead) => lead.status === "closed").length;
-
-  const closedRevenue = safeLeads
-    .filter((lead) => lead.status === "closed")
-    .reduce((sum, lead) => sum + (Number(lead.value) || 0), 0);
-
-  const revenueMonth = safeLeads
-    .filter((lead) => {
-      if (!lead.created_at) return false;
-      if (lead.status !== "closed") return false;
-
-      const d = new Date(lead.created_at);
-      return (
-        d.getMonth() === now.getMonth() &&
-        d.getFullYear() === now.getFullYear()
-      );
-    })
-    .reduce((sum, lead) => sum + (Number(lead.value) || 0), 0);
-
-  const avgTicket =
-    closed > 0 ? Math.round(closedRevenue / closed) : 0;
-
-  const conversionRate =
-    safeLeads.length > 0 ? Math.round((closed / safeLeads.length) * 100) : 0;
-
-  const recentLeads = safeLeads.slice(0, 6);
-
-  const leads7d = getLast7DaysLeads(safeLeads);
-  const revenue6m = getLast6MonthsRevenue(safeLeads);
-
-  const maxLeads = Math.max(...leads7d.map((d) => d.count), 1);
-  const maxRevenue = Math.max(...revenue6m.map((d) => d.value), 1);
-
-  const topCards = [
-    { label: "Leads Hoje", value: leadsToday },
-    { label: "7 Dias", value: leadsWeek },
-    { label: "Este Mês", value: leadsMonth },
-    { label: "Receita Mês", value: formatEuro(revenueMonth) },
-    { label: "Booked", value: booked },
-    { label: "Closed", value: closed },
-    { label: "Ticket Médio", value: formatEuro(avgTicket) },
-    { label: "Conversão", value: `${conversionRate}%` },
-  ];
-
-  const pipelineCards = [
-    { label: "Contacted", value: contacted },
-    { label: "Qualified", value: qualified },
-    { label: "Booked", value: booked },
-    { label: "Closed", value: closed },
-  ];
-
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/[0.03] p-6 lg:flex-row lg:items-center lg:justify-between">
+    <div className="space-y-6 p-6 text-white">
+      <div className="flex flex-col gap-5 rounded-2xl border border-white/10 bg-white/[0.03] p-6 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-neutral-500">
-            Dashboard
+            Service Dashboard
           </div>
-          <h1 className="mt-2 text-3xl font-semibold text-white">
-            Visão geral do negócio
+          <h1 className="mt-2 text-3xl font-semibold">
+            Today&apos;s restaurant service
           </h1>
-          <p className="mt-2 max-w-2xl text-sm text-neutral-400">
-            Acompanha leads, receita, conversão e evolução da automação num só sítio.
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-400">
+            Prepare the floor and kitchen around reservations, confirmations,
+            dietary risks, occasions, and briefing notes before guests arrive.
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-col gap-3 xl:items-end">
           <Link
-            href="/pt/leads"
-            className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white"
+            href={`/${locale}/reservations/new`}
+            className="inline-flex items-center justify-center rounded-xl bg-white px-5 py-3 text-sm font-medium text-black"
           >
-            Ver Pipeline
+            Create reservation request
           </Link>
 
-          <Link
-            href="/pt/automations"
-            className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white"
-          >
-            Ver Automações
-          </Link>
-
-          <Link
-            href="/pt/pricing"
-            className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white"
-          >
-            Ver Plano
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/${locale}/reservations`}
+              className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white"
+            >
+              Open reservation board
+            </Link>
+            <Link
+              href={`/${locale}/guests`}
+              className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white"
+            >
+              View guest profiles
+            </Link>
+            <Link
+              href={`/${locale}/restaurants`}
+              className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white"
+            >
+              Manage restaurants
+            </Link>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-8">
-        {topCards.map((card) => (
-          <div
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
+        {overviewCards.map((card) => (
+          <Link
             key={card.label}
-            className="rounded-2xl border border-white/10 bg-white/[0.02] p-4"
+            href={card.href}
+            className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 transition hover:border-white/25 hover:bg-white/[0.05]"
           >
             <div className="text-xs uppercase tracking-[0.15em] text-neutral-500">
               {card.label}
             </div>
-            <div className="mt-2 text-2xl font-semibold text-white">
+            <div className="mt-2 text-3xl font-semibold text-white">
               {card.value}
             </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 xl:col-span-2">
-          <div className="mb-4">
-            <div className="text-sm font-medium text-white">Leads últimos 7 dias</div>
-            <div className="text-xs text-neutral-500">
-              Quantidade de leads criadas por dia
-            </div>
-          </div>
-
-          <div className="flex h-64 items-end gap-3">
-            {leads7d.map((item) => (
-              <div key={item.label} className="flex flex-1 flex-col items-center gap-2">
-                <div className="text-xs text-neutral-500">{item.count}</div>
-                <div
-                  className="w-full rounded-t-xl bg-white/20"
-                  style={{
-                    height: `${Math.max((item.count / maxLeads) * 200, 8)}px`,
-                  }}
-                />
-                <div className="text-[11px] text-neutral-500">{item.label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-          <div className="mb-4">
-            <div className="text-sm font-medium text-white">Resumo do pipeline</div>
-            <div className="text-xs text-neutral-500">
-              Estado atual das leads
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {pipelineCards.map((item) => (
-              <div
-                key={item.label}
-                className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-4 py-3"
-              >
-                <div className="text-sm text-neutral-300">{item.label}</div>
-                <div className="text-lg font-semibold text-white">{item.value}</div>
-              </div>
-            ))}
-          </div>
-
-          <Link
-            href="/pt/leads"
-            className="mt-4 inline-flex w-full items-center justify-center rounded-xl border border-white/10 px-4 py-3 text-sm text-white"
-          >
-            Abrir pipeline completo
+            <p className="mt-2 text-xs leading-5 text-zinc-500">
+              {card.helper}
+            </p>
+            <p className="mt-3 text-sm font-medium text-zinc-200">
+              {card.action}
+            </p>
           </Link>
-        </div>
-      </div>
+        ))}
+      </section>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 xl:col-span-2">
-          <div className="mb-4">
-            <div className="text-sm font-medium text-white">Receita últimos 6 meses</div>
-            <div className="text-xs text-neutral-500">
-              Soma das leads fechadas por mês
-            </div>
-          </div>
-
-          <div className="flex h-64 items-end gap-3">
-            {revenue6m.map((item) => (
-              <div key={item.label} className="flex flex-1 flex-col items-center gap-2">
-                <div className="text-xs text-neutral-500">
-                  {item.value > 0 ? formatEuro(item.value) : "€0"}
-                </div>
-                <div
-                  className="w-full rounded-t-xl bg-white/20"
-                  style={{
-                    height: `${Math.max((item.value / maxRevenue) * 200, 8)}px`,
-                  }}
-                />
-                <div className="text-[11px] text-neutral-500">{item.label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-          <div className="mb-4">
-            <div className="text-sm font-medium text-white">Leads recentes</div>
-            <div className="text-xs text-neutral-500">
-              Últimas entradas no sistema
-            </div>
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(22rem,0.8fr)]">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5">
+          <div className="mb-4 flex flex-col gap-1">
+            <h2 className="text-xl font-semibold">Reservations for today</h2>
+            <p className="text-sm text-zinc-500">
+              {new Date().toLocaleDateString("pt-PT", {
+                weekday: "long",
+                day: "2-digit",
+                month: "long",
+              })}
+            </p>
           </div>
 
           <div className="space-y-3">
-            {recentLeads.length ? (
-              recentLeads.map((lead) => (
-                <div
-                  key={lead.id}
-                  className="rounded-xl border border-white/10 bg-black/20 p-3"
-                >
-                  <div className="font-medium text-white">
-                    {lead.name || "Lead sem nome"}
-                  </div>
-
-                  {lead.phone ? (
-                    <div className="mt-1 text-sm text-neutral-400">
-                      📞 {lead.phone}
-                    </div>
-                  ) : null}
-
-                  <div className="mt-2 flex items-center justify-between text-xs text-neutral-500">
-                    <span>{lead.status || "new"}</span>
-                    <span>
-                      {lead.created_at
-                        ? new Date(lead.created_at).toLocaleDateString("pt-PT")
-                        : "-"}
-                    </span>
-                  </div>
-                </div>
+            {todaysReservations.length ? (
+              todaysReservations.map((request) => (
+                <ReservationServiceItem
+                  key={request.id}
+                  locale={locale}
+                  request={request}
+                  briefing={
+                    briefingByReservation.get(request.id) ||
+                    makeEmptyBriefing()
+                  }
+                />
               ))
             ) : (
-              <div className="rounded-xl border border-dashed border-white/10 p-3 text-xs text-neutral-500">
-                Ainda sem leads recentes
+              <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-6">
+                <h3 className="text-lg font-semibold">
+                  No timed reservations for today
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-zinc-500">
+                  Reservations without requested dates are still available on
+                  the reservation board and can be prepared from their detail
+                  pages.
+                </p>
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <Link
+                    href={`/${locale}/reservations/new`}
+                    className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-black"
+                  >
+                    Create today&apos;s first reservation
+                  </Link>
+                  <Link
+                    href={`/${locale}/reservations`}
+                    className="rounded-xl border border-white/10 px-4 py-2 text-sm font-medium text-white"
+                  >
+                    Open reservation board
+                  </Link>
+                </div>
               </div>
             )}
           </div>
         </div>
-      </div>
+
+        <aside className="space-y-4">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5">
+            <h2 className="text-sm font-medium uppercase tracking-[0.15em] text-zinc-500">
+              Today&apos;s service overview
+            </h2>
+            <div className="mt-4 space-y-3 text-sm text-zinc-300">
+              <p>
+                <span className="text-zinc-600">Guests expected:</span>{" "}
+                {todaysReservations.reduce(
+                  (sum, request) => sum + Number(getPartySize(request) || 0),
+                  0
+                ) || "Pending party sizes"}
+              </p>
+              <p>
+                <span className="text-zinc-600">Briefings ready:</span>{" "}
+                {serviceBriefingCount}
+              </p>
+              <p>
+                <span className="text-zinc-600">Confirmations pending:</span>{" "}
+                {pendingConfirmations.length}
+              </p>
+              <p>
+                <span className="text-zinc-600">Kitchen alerts:</span>{" "}
+                {criticalDietaryAlerts.length}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5">
+            <h2 className="text-sm font-medium uppercase tracking-[0.15em] text-zinc-500">
+              Analytics
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-zinc-400">
+              Insights will move to a dedicated analytics area later. This
+              dashboard now prioritizes service readiness.
+            </p>
+          </div>
+        </aside>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5">
+          <h2 className="text-xl font-semibold">Upcoming service reservations</h2>
+          <div className="mt-4 space-y-3">
+            {upcomingReservations.length ? (
+              upcomingReservations.map((request) => (
+                <ReservationServiceItem
+                  key={request.id}
+                  locale={locale}
+                  request={request}
+                  briefing={
+                    briefingByReservation.get(request.id) ||
+                    makeEmptyBriefing()
+                  }
+                />
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-5 text-sm text-zinc-500">
+                No upcoming dated reservations yet
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <section className="rounded-2xl border border-white/10 bg-white/[0.02] p-5">
+            <h2 className="text-xl font-semibold">Critical dietary alerts</h2>
+            <div className="mt-4 space-y-3">
+              {criticalDietaryAlerts.slice(0, 5).map((request) => {
+                const briefing =
+                  briefingByReservation.get(request.id) ||
+                  makeEmptyBriefing();
+                const alerts = [
+                  ...briefing.allergies,
+                  ...briefing.intolerances,
+                  ...briefing.dietaryRestrictions,
+                  request.dietary_notes || "",
+                ].filter(Boolean);
+
+                return (
+                  <Link
+                    key={request.id}
+                    href={`/${locale}/reservations/${request.id}`}
+                    className="block rounded-xl border border-white/10 bg-black/25 p-3 hover:bg-white/[0.04]"
+                  >
+                    <p className="font-medium">{request.name || "Unnamed guest"}</p>
+                    <p className="mt-1 text-sm leading-6 text-red-300">
+                      {summarizeValues(alerts)}
+                    </p>
+                  </Link>
+                );
+              })}
+
+              {criticalDietaryAlerts.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-white/10 bg-black/20 p-3 text-sm text-zinc-500">
+                  No critical dietary alerts recorded
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-white/10 bg-white/[0.02] p-5">
+            <h2 className="text-xl font-semibold">Special occasions</h2>
+            <div className="mt-4 space-y-3">
+              {specialOccasions.slice(0, 5).map((request) => (
+                <Link
+                  key={request.id}
+                  href={`/${locale}/reservations/${request.id}`}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 p-3 hover:bg-white/[0.04]"
+                >
+                  <span className="font-medium">
+                    {request.name || "Unnamed guest"}
+                  </span>
+                  <span className="text-sm text-amber-200">
+                    {getOccasion(request)}
+                  </span>
+                </Link>
+              ))}
+
+              {specialOccasions.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-white/10 bg-black/20 p-3 text-sm text-zinc-500">
+                  No special occasions recorded
+                </div>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5">
+          <h2 className="text-xl font-semibold">Service briefing summary</h2>
+          <div className="mt-4 space-y-3">
+            {reservationRequests
+              .filter((request) => {
+                const briefing =
+                  briefingByReservation.get(request.id) ||
+                  makeEmptyBriefing();
+                return (
+                  briefing.dislikes.length > 0 ||
+                  briefing.winePreferences.length > 0 ||
+                  briefing.notes.length > 0 ||
+                  !!getOccasion(request)
+                );
+              })
+              .slice(0, 5)
+              .map((request) => {
+                const briefing =
+                  briefingByReservation.get(request.id) ||
+                  makeEmptyBriefing();
+
+                return (
+                  <Link
+                    key={request.id}
+                    href={`/${locale}/reservations/${request.id}`}
+                    className="block rounded-xl border border-white/10 bg-black/25 p-3 hover:bg-white/[0.04]"
+                  >
+                    <p className="font-medium">{request.name || "Unnamed guest"}</p>
+                    <p className="mt-1 text-sm leading-6 text-zinc-400">
+                      Wine: {summarizeValues(briefing.winePreferences)}
+                    </p>
+                    <p className="text-sm leading-6 text-zinc-400">
+                      Notes: {summarizeValues(briefing.notes)}
+                    </p>
+                  </Link>
+                );
+              })}
+
+            {serviceBriefingCount === 0 ? (
+              <div className="rounded-xl border border-dashed border-white/10 bg-black/20 p-3 text-sm text-zinc-500">
+                No service briefing details recorded yet
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5">
+          <h2 className="text-xl font-semibold">Kitchen briefing summary</h2>
+          <div className="mt-4 space-y-3">
+            {criticalDietaryAlerts.slice(0, 5).map((request) => {
+              const briefing =
+                briefingByReservation.get(request.id) || makeEmptyBriefing();
+              const kitchenNotes = [
+                ...briefing.allergies,
+                ...briefing.intolerances,
+                ...briefing.dietaryRestrictions,
+                request.dietary_notes || "",
+              ].filter(Boolean);
+
+              return (
+                <Link
+                  key={request.id}
+                  href={`/${locale}/reservations/${request.id}`}
+                  className="block rounded-xl border border-white/10 bg-black/25 p-3 hover:bg-white/[0.04]"
+                >
+                  <p className="font-medium">{request.name || "Unnamed guest"}</p>
+                  <p className="mt-1 text-sm leading-6 text-red-300">
+                    {summarizeValues(kitchenNotes)}
+                  </p>
+                </Link>
+              );
+            })}
+
+            {criticalDietaryAlerts.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-white/10 bg-black/20 p-3 text-sm text-zinc-500">
+                No kitchen briefing risks recorded yet
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

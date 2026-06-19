@@ -1,16 +1,22 @@
 "use client";
 
-import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+
+type BusinessOption = {
+  id: string;
+  name: string;
+};
 
 export default function NewRestaurantPage() {
   const router = useRouter();
   const params = useParams();
-  const locale = String(params.locale || "en");
+  const locale = String(params.locale || "pt");
 
-  const supabase = createClient();
-
+  const [businesses, setBusinesses] = useState<BusinessOption[]>([]);
+  const [businessId, setBusinessId] = useState("");
+  const [isLoadingBusinesses, setIsLoadingBusinesses] = useState(true);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [location, setLocation] = useState("");
@@ -22,9 +28,62 @@ export default function NewRestaurantPage() {
   const [chefStory, setChefStory] = useState("");
   const [brandPrimaryColor, setBrandPrimaryColor] = useState("#0f0f0f");
   const [brandAccentColor, setBrandAccentColor] = useState("#d4af37");
-
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadBusinesses() {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        if (isActive) {
+          setErrorMessage("You must be signed in to create a restaurant.");
+          setIsLoadingBusinesses(false);
+        }
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("business_memberships")
+        .select("business_id, businesses(name)")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true });
+
+      if (!isActive) return;
+
+      if (error) {
+        setErrorMessage(error.message);
+        setIsLoadingBusinesses(false);
+        return;
+      }
+
+      const options = (data || []).map((membership) => {
+        const relatedBusiness = Array.isArray(membership.businesses)
+          ? membership.businesses[0]
+          : membership.businesses;
+
+        return {
+          id: membership.business_id,
+          name: relatedBusiness?.name || "Unnamed business",
+        };
+      });
+
+      setBusinesses(options);
+      setBusinessId(options[0]?.id || "");
+      setIsLoadingBusinesses(false);
+    }
+
+    void loadBusinesses();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   function generateSlug(value: string) {
     return value
@@ -42,7 +101,17 @@ export default function NewRestaurantPage() {
     setIsSaving(true);
     setErrorMessage("");
 
+    if (!businessId) {
+      setErrorMessage(
+        "Your user must belong to a business before creating a restaurant."
+      );
+      setIsSaving(false);
+      return;
+    }
+
+    const supabase = createClient();
     const { error } = await supabase.from("restaurants").insert({
+      business_id: businessId,
       name,
       slug,
       location,
@@ -62,33 +131,58 @@ export default function NewRestaurantPage() {
       return;
     }
 
-    router.push(`/${locale}/restaurants/${slug}`);
+    router.push(`/${locale}/business/restaurants`);
     router.refresh();
   }
 
   return (
-    <main className="min-h-screen bg-[#0f0f0f] px-6 py-10 text-white">
-      <div className="mx-auto max-w-3xl">
-        <p className="text-sm uppercase tracking-[0.3em] text-white/40">
-          Create Restaurant Experience
+    <div className="p-8 text-white">
+      <div className="max-w-4xl">
+        <p className="text-xs uppercase tracking-[0.3em] text-zinc-500">
+          Restaurants
         </p>
 
-        <h1 className="mt-3 text-3xl font-semibold">
-          Design Your Restaurant Experience
-        </h1>
+        <h1 className="mt-3 text-3xl font-semibold">Create restaurant</h1>
 
-        <p className="mt-3 text-white/60">
-          Show guests the experience before they arrive.
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-400">
+          Build the restaurant profile Find Dining will use for public pages,
+          reservation requests, guest context, and dining experience setup.
         </p>
 
-        <form onSubmit={handleSubmit} className="mt-8 space-y-8">
-          <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
-            <h2 className="text-xl font-semibold">Restaurant Profile</h2>
+        <form onSubmit={handleSubmit} className="mt-8 space-y-6">
+          <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+            <h2 className="text-xl font-semibold">Restaurant profile</h2>
 
-            <div className="mt-5 space-y-4">
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-white/70">
+                  Business
+                </label>
+                <select
+                  className="mt-1 w-full rounded-md border border-white/10 bg-black/30 p-3 text-white outline-none"
+                  value={businessId}
+                  onChange={(event) => setBusinessId(event.target.value)}
+                  disabled={isLoadingBusinesses || businesses.length === 0}
+                  required
+                >
+                  {businesses.length === 0 ? (
+                    <option value="">
+                      {isLoadingBusinesses
+                        ? "Loading businesses..."
+                        : "No business membership available"}
+                    </option>
+                  ) : null}
+                  {businesses.map((business) => (
+                    <option key={business.id} value={business.id}>
+                      {business.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-white/70">
-                  Restaurant Name
+                  Restaurant name
                 </label>
                 <input
                   className="mt-1 w-full rounded-md border border-white/10 bg-black/30 p-3 text-white outline-none"
@@ -110,6 +204,7 @@ export default function NewRestaurantPage() {
                   className="mt-1 w-full rounded-md border border-white/10 bg-black/30 p-3 text-white outline-none"
                   value={slug}
                   onChange={(event) => setSlug(generateSlug(event.target.value))}
+                  placeholder="feitoria"
                   required
                 />
               </div>
@@ -128,50 +223,50 @@ export default function NewRestaurantPage() {
 
               <div>
                 <label className="block text-sm font-medium text-white/70">
-                  Michelin Status
+                  Michelin status
                 </label>
                 <input
                   className="mt-1 w-full rounded-md border border-white/10 bg-black/30 p-3 text-white outline-none"
                   value={michelinStatus}
                   onChange={(event) => setMichelinStatus(event.target.value)}
-                  placeholder="1 Michelin Star"
+                  placeholder="1 Michelin star"
                 />
               </div>
             </div>
           </section>
 
-          <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
-            <h2 className="text-xl font-semibold">Brand Experience</h2>
+          <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+            <h2 className="text-xl font-semibold">Visual identity</h2>
 
             <div className="mt-5 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-white/70">
-                  Hero Image
+                  Hero image
                 </label>
                 <input
                   className="mt-1 w-full rounded-md border border-white/10 bg-black/30 p-3 text-white outline-none"
                   value={imageUrl}
                   onChange={(event) => setImageUrl(event.target.value)}
-                  placeholder="The image that best represents your restaurant"
+                  placeholder="Primary image for the public restaurant page"
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-white/70">
-                  Restaurant Logo
+                  Logo
                 </label>
                 <input
                   className="mt-1 w-full rounded-md border border-white/10 bg-black/30 p-3 text-white outline-none"
                   value={logoUrl}
                   onChange={(event) => setLogoUrl(event.target.value)}
-                  placeholder="Official restaurant logo"
+                  placeholder="Restaurant logo URL"
                 />
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label className="block text-sm font-medium text-white/70">
-                    Primary Brand Color
+                    Primary brand color
                   </label>
                   <input
                     type="color"
@@ -188,7 +283,7 @@ export default function NewRestaurantPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-white/70">
-                    Accent Brand Color
+                    Accent brand color
                   </label>
                   <input
                     type="color"
@@ -206,66 +301,66 @@ export default function NewRestaurantPage() {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
-            <h2 className="text-xl font-semibold">Restaurant Story</h2>
+          <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+            <h2 className="text-xl font-semibold">Chef and story</h2>
 
             <div className="mt-5 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-white/70">
-                  Restaurant Philosophy
-                </label>
-                <textarea
-                  className="mt-1 w-full rounded-md border border-white/10 bg-black/30 p-3 text-white outline-none"
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  rows={4}
-                  placeholder="Describe the atmosphere, philosophy and experience guests should expect."
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-white/70">
-                  Chef Name
+                  Chef name
                 </label>
                 <input
                   className="mt-1 w-full rounded-md border border-white/10 bg-black/30 p-3 text-white outline-none"
                   value={chefName}
                   onChange={(event) => setChefName(event.target.value)}
-                  placeholder="André Cruz"
+                  placeholder="Andre Cruz"
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-white/70">
-                  Chef Philosophy
+                  Chef story
                 </label>
                 <textarea
                   className="mt-1 w-full rounded-md border border-white/10 bg-black/30 p-3 text-white outline-none"
                   value={chefStory}
                   onChange={(event) => setChefStory(event.target.value)}
                   rows={5}
-                  placeholder="Tell guests about the vision, inspiration and values behind the cuisine."
+                  placeholder="Share the chef's philosophy, point of view, and culinary identity."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white/70">
+                  Restaurant story
+                </label>
+                <textarea
+                  className="mt-1 w-full rounded-md border border-white/10 bg-black/30 p-3 text-white outline-none"
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  rows={4}
+                  placeholder="Describe the atmosphere, hospitality style, and dining experience guests should expect."
                 />
               </div>
             </div>
           </section>
 
-          {errorMessage && (
+          {errorMessage ? (
             <p className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
               {errorMessage}
             </p>
-          )}
+          ) : null}
 
           <button
             type="submit"
-            disabled={isSaving}
-            className="rounded-full px-6 py-3 text-sm font-medium text-black disabled:opacity-50"
+            disabled={isSaving || isLoadingBusinesses || !businessId}
+            className="rounded-xl px-6 py-3 text-sm font-medium text-black disabled:opacity-50"
             style={{ backgroundColor: brandAccentColor }}
           >
-            {isSaving ? "Saving..." : "Create Experience"}
+            {isSaving ? "Creating restaurant..." : "Create restaurant"}
           </button>
         </form>
       </div>
-    </main>
+    </div>
   );
 }

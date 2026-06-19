@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase-client";
 
 type SidebarProps = {
@@ -13,52 +13,58 @@ export default function Sidebar({ email }: SidebarProps) {
   const pathname = usePathname();
   const locale = pathname?.split("/")[1] || "pt";
 
+  const navigation = [
+    { label: "Dashboard", href: `/${locale}/business/dashboard` },
+    { label: "Restaurants", href: `/${locale}/business/restaurants` },
+    { label: "Reservations", href: `/${locale}/business/reservations` },
+    { label: "Guests", href: `/${locale}/business/guests` },
+    { label: "Experiences", href: `/${locale}/business/experiences` },
+    { label: "Channels", href: `/${locale}/business/channels` },
+    { label: "Plan", href: `/${locale}/billing` },
+    { label: "Settings", href: `/${locale}/business/settings` },
+  ];
+
   async function handleLogout() {
     await supabase.auth.signOut();
     router.push(`/${locale}/login`);
   }
 
   return (
-    <aside className="w-64 min-h-screen bg-black text-white p-4 border-r border-zinc-800">
+    <aside className="min-h-screen w-64 border-r border-zinc-800 bg-black p-4 text-white">
       <div className="mb-8">
         <h1 className="text-xl font-semibold">Find Dining</h1>
-        <p className="text-zinc-500 text-sm">Backoffice restaurante</p>
+        <p className="text-sm text-zinc-500">Restaurant platform</p>
 
-        <a href={`mailto:${email}`} className="block text-zinc-600 text-xs mt-1">
+        <a href={`mailto:${email}`} className="mt-1 block text-xs text-zinc-600">
           {email}
         </a>
       </div>
 
-      <nav className="space-y-3">
-        <Link href={`/${locale}/dashboard`} className="block hover:text-white text-zinc-400">
-          Dashboard
-        </Link>
+      <nav className="space-y-2">
+        {navigation.map((item) => {
+          const isActive =
+            pathname === item.href || pathname?.startsWith(`${item.href}/`);
 
-        <Link href={`/${locale}/projects`} className="block hover:text-white text-zinc-400">
-          Restaurantes
-        </Link>
-
-        <Link href={`/${locale}/automations`} className="block hover:text-white text-zinc-400">
-          Reservas
-        </Link>
-
-        <Link href={`/${locale}/leads`} className="block hover:text-white text-zinc-400">
-          Clientes
-        </Link>
-
-        <Link href={`/${locale}/billing`} className="block hover:text-white text-zinc-400">
-          Plano
-        </Link>
-
-        <Link href={`/${locale}/settings`} className="block hover:text-white text-zinc-400">
-          Definições
-        </Link>
+          return (
+            <Link
+              key={item.label}
+              href={item.href}
+              className={`block rounded-lg px-3 py-2 text-sm transition ${
+                isActive
+                  ? "bg-white text-black"
+                  : "text-zinc-400 hover:bg-white/5 hover:text-white"
+              }`}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
 
         <button
           onClick={handleLogout}
-          className="pt-6 text-red-500 cursor-pointer"
+          className="px-3 pt-6 text-red-500 cursor-pointer"
         >
-          Sair
+          Sign out
         </button>
       </nav>
     </aside>
