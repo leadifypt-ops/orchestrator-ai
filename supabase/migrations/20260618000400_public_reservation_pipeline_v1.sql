@@ -193,3 +193,7 @@ grant execute on function public.create_public_reservation_v1(
   text, text, text, text, date, time without time zone, integer, text, text,
   text[], text[], text[], text[], text, text
 ) to anon, authenticated;
+
+-- Make the newly-created RPC visible to PostgREST immediately after a manual
+-- SQL Editor deployment as well as a CLI migration deployment.
+notify pgrst, 'reload schema';

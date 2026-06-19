@@ -52,13 +52,47 @@ reaches the client.
 
 ## Deployment and verification
 
-The migration depends on migrations `20260617000100` through
-`20260618000300`. Apply the complete chain before testing persistence. After a
-submission, verify the canonical reservation, guest/profile, and timeline rows,
-then confirm it appears with the Canonical badge and `public_request` source in
-`/business/reservations` and opens correctly at
-`/business/reservations/[id]`.
+The destination database must receive these SQL files in this exact order:
 
+1. `supabase/migrations/20260617000100_gastronomic_profile_v1.sql`
+2. `supabase/migrations/20260617000200_reservation_notes_timeline.sql`
+3. `supabase/migrations/20260618000100_business_ownership_foundation.sql`
+4. `supabase/migrations/20260618000200_reservation_canonical_schema_v1.sql`
+5. `supabase/migrations/20260618000300_business_reservations_canonical_write_v1.sql`
+6. `supabase/migrations/20260618000400_public_reservation_pipeline_v1.sql`
+
+Those files are the exact SQL to apply; do not apply only the final RPC file.
+The public function depends on the ownership column, canonical reservation
+table, guest/profile tables, and timeline table created earlier in the chain.
+With a linked Supabase project, apply the tracked migrations with:
+
+```sh
+npx supabase db push --linked
+```
+
+When using the Supabase SQL Editor, paste and execute the complete contents of
+each of the six files above, one at a time in the listed order. The final file
+also asks PostgREST to reload its schema cache. Verify the deployed contract:
+
+```sql
+select
+  to_regclass('public.reservations') is not null as has_reservations,
+  to_regclass('public.reservation_guests') is not null as has_guests,
+  to_regclass('public.reservation_timeline_events') is not null as has_timeline,
+  to_regprocedure(
+    'public.create_public_reservation_v1(text,text,text,text,date,time without time zone,integer,text,text,text[],text[],text[],text[],text,text)'
+  ) is not null as has_public_rpc,
+  has_function_privilege(
+    'anon',
+    'public.create_public_reservation_v1(text,text,text,text,date,time without time zone,integer,text,text,text[],text[],text[],text[],text,text)',
+    'EXECUTE'
+  ) as anon_can_execute;
+```
+
+All five values must be `true`. After a submission, verify the canonical
+reservation, guest/profile, and timeline rows, then confirm it appears with the
+Canonical badge and `public_request` source in `/business/reservations` and
+opens correctly at `/business/reservations/[id]`.
 Next steps are rate limiting and bot protection, explicit restaurant publishing
 state, notifications, and canonical operational mutations.
 
@@ -66,8 +100,9 @@ state, notifications, and canonical operational mutations.
 
 TypeScript, focused ESLint, and the Next.js production build passed. Browser
 verification confirmed the public form and the login redirects for Business
-Reservations list and detail. The Supabase CLI is not installed and the public
-RPC is not available in the configured destination yet: a synthetic submission
-returned the controlled unavailable response without creating a false success
-state. Apply migration `20260618000400` with its dependency chain before the
-end-to-end persistence check.
+Reservations list and detail. The configured destination was audited on
+2026-06-19 with read-only requests. It did not expose `public.reservations`,
+`public.reservation_guests`, or `public.reservation_timeline_events`;
+`public.restaurants.business_id` and `create_public_reservation_v1` were also
+absent. Apply the exact six-file chain above before the end-to-end persistence
+check.

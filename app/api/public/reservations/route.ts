@@ -94,9 +94,19 @@ export async function POST(request: Request) {
     });
 
     if (error) {
+      // Keep database details out of the public response, but leave enough
+      // server-side context to distinguish missing migrations from downtime.
+      console.error("Public reservation RPC failed", {
+        code: error.code,
+        rpc: "create_public_reservation_v1",
+      });
       return errorResponse("We could not submit your request. Please try again.", 503);
     }
-  } catch {
+  } catch (error) {
+    console.error("Public reservation RPC request failed", {
+      error: error instanceof Error ? error.name : "UnknownError",
+      rpc: "create_public_reservation_v1",
+    });
     return errorResponse("We could not submit your request. Please try again.", 503);
   }
 
