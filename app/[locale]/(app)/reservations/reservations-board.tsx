@@ -2,19 +2,8 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { useParams } from "next/navigation";
 import type { ReservationMetrics, ReservationRequest } from "./page";
-
-const STATUS_OPTIONS = [
-  { id: "new", label: "New request" },
-  { id: "contacted", label: "Awaiting confirmation" },
-  { id: "qualified", label: "Confirmed interest" },
-  { id: "converted", label: "Confirmed" },
-  { id: "booked", label: "Confirmed" },
-  { id: "lost", label: "Cancelled / No-show risk" },
-  { id: "closed", label: "Service completed" },
-];
 
 const CANONICAL_STATUS_LABELS: Record<string, string> = {
   pending: "New request",
@@ -25,17 +14,8 @@ const CANONICAL_STATUS_LABELS: Record<string, string> = {
   completed: "Service completed",
 };
 
-type UpdatingMap = Record<string, boolean>;
-
 function getStatusLabel(status?: string | null) {
-  const canonicalLabel = CANONICAL_STATUS_LABELS[String(status || "")];
-  if (canonicalLabel) return canonicalLabel;
-
-  const option = STATUS_OPTIONS.find((item) => item.id === status);
-
-  if (status === "active") return "Awaiting confirmation";
-
-  return option?.label || "New request";
+  return CANONICAL_STATUS_LABELS[String(status || "")] || "New request";
 }
 
 function getStatusClasses(status?: string | null) {
@@ -79,19 +59,11 @@ function formatDateTime(value?: string | null) {
 }
 
 function getContactChannel(request: ReservationRequest) {
-  return (
-    request.source ||
-    request.channel ||
-    (request.instagram ? "Instagram" : null) ||
-    (request.whatsapp ? "WhatsApp" : null) ||
-    (request.phone ? "Phone" : null) ||
-    "Unknown channel"
-  );
+  return request.source || "Unknown channel";
 }
 
 function getExperienceName(request: ReservationRequest) {
   return (
-    request.requested_experience ||
     request.service ||
     request.restaurant_name ||
     request.restaurant ||
@@ -113,9 +85,7 @@ function getNoShowRisk(request: ReservationRequest) {
   }
   if (
     !request.email &&
-    !request.phone &&
-    !request.whatsapp &&
-    !request.instagram
+    !request.phone
   ) {
     return "Medium";
   }
@@ -129,11 +99,8 @@ export default function ReservationsBoard({
   requests: ReservationRequest[];
   metrics: ReservationMetrics;
 }) {
-  const router = useRouter();
   const params = useParams();
-  const supabase = createClient();
   const locale = String(params.locale || "pt");
-  const [updatingStatus, setUpdatingStatus] = useState<UpdatingMap>({});
   const [selectedRequestId, setSelectedRequestId] = useState(
     requests[0]?.id || ""
   );
@@ -142,64 +109,6 @@ export default function ReservationsBoard({
     () => requests.find((request) => request.id === selectedRequestId) || null,
     [requests, selectedRequestId]
   );
-
-  async function updateRequestStatus(requestId: string, status: string) {
-    const request = requests.find((item) => item.id === requestId);
-    if (!request || request.recordType === "canonical") return;
-    const previousStatus = request?.status ?? "new";
-
-    if (previousStatus === status) return;
-
-    try {
-      setUpdatingStatus((prev) => ({ ...prev, [requestId]: true }));
-
-      const response = await fetch("/api/leads/update-status", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          leadId: requestId,
-          status,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        alert(data?.error || "Could not update reservation status.");
-        return;
-      }
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      const oldLabel = getStatusLabel(previousStatus);
-      const newLabel = getStatusLabel(status);
-      const { error: timelineError } = await supabase
-        .from("reservation_timeline_events")
-        .insert({
-          reservation_id: requestId,
-          event_type: "status_change",
-          event_label: "Status changed",
-          event_description: `Status changed from ${oldLabel} to ${newLabel}`,
-          created_by: user?.id || null,
-        });
-
-      if (timelineError) {
-        alert(
-          "Reservation status was updated, but the timeline event could not be saved."
-        );
-      }
-
-      router.refresh();
-    } catch {
-      alert("Unexpected error updating reservation request.");
-    } finally {
-      setUpdatingStatus((prev) => ({ ...prev, [requestId]: false }));
-    }
-  }
 
   const metricCards = [
     { label: "Reservation requests", value: metrics.total },
@@ -276,19 +185,26 @@ export default function ReservationsBoard({
                         {getStatusLabel(request.status)}
                       </span>
                       <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-zinc-500">
-                        {request.recordType === "canonical"
-                          ? "Canonical"
-                          : "Legacy"}
+                        Canonical
                       </span>
                     </div>
 
                     <div className="mt-3 grid gap-3 text-sm text-zinc-400 sm:grid-cols-2 xl:grid-cols-3">
                       <div>
                         <p className="text-xs uppercase tracking-[0.15em] text-zinc-600">
-                          Contact channel
+                          Source
                         </p>
                         <p className="mt-1 text-zinc-300">
                           {getContactChannel(request)}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.15em] text-zinc-600">
+                          Guest email
+                        </p>
+                        <p className="mt-1 text-zinc-300">
+                          {request.email || "Not specified"}
                         </p>
                       </div>
 
@@ -343,10 +259,8 @@ export default function ReservationsBoard({
                         Service briefing
                       </p>
                       <p className="mt-2 text-sm leading-6 text-zinc-300">
-                        {request.dietary_notes
-                          ? `Dietary notes: ${request.dietary_notes}`
-                          : request.message ||
-                            "No dietary notes or briefing details captured yet."}
+                        {request.message ||
+                          "No dietary notes or briefing details captured yet."}
                       </p>
                     </div>
                   </div>
@@ -360,32 +274,9 @@ export default function ReservationsBoard({
                       Review request
                     </Link>
 
-                    {request.recordType === "legacy" ? (
-                      <select
-                        value={request.status ?? "new"}
-                        onChange={(event) =>
-                          updateRequestStatus(request.id, event.target.value)
-                        }
-                        disabled={!!updatingStatus[request.id]}
-                        className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none"
-                      >
-                        {STATUS_OPTIONS.map((option) => (
-                          <option key={option.id} value={option.id}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <p className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-zinc-500">
-                        Canonical status is read-only in this version.
-                      </p>
-                    )}
-
-                    {updatingStatus[request.id] ? (
-                      <p className="text-xs text-neutral-500">
-                        Updating confirmation status...
-                      </p>
-                    ) : null}
+                    <p className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-zinc-500">
+                      Canonical status is read-only in this version.
+                    </p>
 
                     <p className="text-xs text-zinc-600">
                       Received{" "}
@@ -430,9 +321,7 @@ export default function ReservationsBoard({
                     Guest contact
                   </p>
                   <p className="mt-1 text-zinc-300">
-                    {selectedRequest.whatsapp ||
-                      selectedRequest.instagram ||
-                      selectedRequest.email ||
+                    {selectedRequest.email ||
                       selectedRequest.phone ||
                       "No contact detail captured"}
                   </p>
@@ -452,7 +341,7 @@ export default function ReservationsBoard({
                     Dietary notes
                   </p>
                   <p className="mt-1 text-zinc-300">
-                    {selectedRequest.dietary_notes || "Not provided"}
+                    {selectedRequest.message || "Not provided"}
                   </p>
                 </div>
 

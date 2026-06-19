@@ -5,27 +5,21 @@ export const dynamic = "force-dynamic";
 
 export type ReservationRequest = {
   id: string;
-  recordType: "canonical" | "legacy";
   name: string | null;
-  email?: string | null;
+  email: string | null;
   phone: string | null;
   source: string | null;
   service: string | null;
   status: string | null;
-  channel?: string | null;
-  message?: string | null;
-  instagram?: string | null;
-  whatsapp?: string | null;
+  message: string | null;
   restaurant_name?: string | null;
   restaurant?: string | null;
-  requested_experience?: string | null;
-  requested_date?: string | null;
-  requested_time?: string | null;
-  party_size?: number | string | null;
-  dietary_notes?: string | null;
-  occasion?: string | null;
+  requested_date: string | null;
+  requested_time: string | null;
+  party_size: number | null;
+  occasion: string | null;
   created_at: string | null;
-  updated_at?: string | null;
+  updated_at: string | null;
 };
 
 type CanonicalReservationRow = {
@@ -61,27 +55,15 @@ export type ReservationMetrics = {
 
 export default async function ReservationsPage() {
   const supabase = await createClient();
+  const { data: canonicalRows = [] } = await supabase
+    .from("reservations")
+    .select(
+      "id, guest_name, guest_email, guest_phone, requested_date, requested_time, party_size, status, occasion, special_request, source, created_at, updated_at, restaurants!reservations_restaurant_id_fkey(name, slug)"
+    )
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const [{ data: canonicalRows = [] }, { data: leads = [] }] =
-    await Promise.all([
-      supabase
-        .from("reservations")
-        .select(
-          "id, guest_name, guest_email, guest_phone, requested_date, requested_time, party_size, status, occasion, special_request, source, created_at, updated_at, restaurants!reservations_restaurant_id_fkey(name, slug)"
-        )
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("leads")
-        .select("*")
-        .eq("user_id", user?.id)
-        .order("created_at", { ascending: false }),
-    ]);
-
-  const canonicalRequests = ((canonicalRows as CanonicalReservationRow[]) ?? []).map(
+  const requests = ((canonicalRows as CanonicalReservationRow[]) ?? []).map(
     (row): ReservationRequest => {
       const restaurant = Array.isArray(row.restaurants)
         ? row.restaurants[0]
@@ -89,14 +71,12 @@ export default async function ReservationsPage() {
 
       return {
         id: row.id,
-        recordType: "canonical",
         name: row.guest_name,
         email: row.guest_email,
         phone: row.guest_phone,
         source: row.source,
         service: restaurant?.name || null,
         status: row.status,
-        channel: "Canonical reservation",
         message: row.special_request,
         restaurant_name: restaurant?.name || null,
         restaurant: restaurant?.slug || null,
@@ -108,12 +88,6 @@ export default async function ReservationsPage() {
         updated_at: row.updated_at,
       };
     }
-  );
-  const legacyRequests = ((leads as Omit<ReservationRequest, "recordType">[]) ?? []).map(
-    (lead): ReservationRequest => ({ ...lead, recordType: "legacy" })
-  );
-  const requests = [...canonicalRequests, ...legacyRequests].sort((a, b) =>
-    String(b.created_at || "").localeCompare(String(a.created_at || ""))
   );
   const now = new Date();
 
@@ -132,27 +106,11 @@ export default async function ReservationsPage() {
 
   const metrics: ReservationMetrics = {
     total: requests.length,
-    newRequests: requests.filter((request) =>
-      ["new", "pending"].includes(String(request.status || "").toLowerCase())
-    ).length,
-    awaitingConfirmation: requests.filter((request) =>
-      ["contacted", "active", "reviewing"].includes(
-        String(request.status || "").toLowerCase()
-      )
-    ).length,
-    confirmedInterest: requests.filter(
-      (request) => request.status === "qualified"
-    ).length,
-    confirmed: requests.filter((request) =>
-      ["booked", "converted", "confirmed"].includes(
-        String(request.status || "").toLowerCase()
-      )
-    ).length,
-    noShowRisk: requests.filter((request) =>
-      ["lost", "declined", "cancelled"].includes(
-        String(request.status || "").toLowerCase()
-      )
-    ).length,
+    newRequests: requests.length,
+    awaitingConfirmation: 0,
+    confirmedInterest: 0,
+    confirmed: 0,
+    noShowRisk: 0,
     today,
     week,
   };
