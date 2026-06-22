@@ -64,8 +64,8 @@ export default async function PublicReservationPage({
               Feitoria
             </h1>
             <p className="mt-5 max-w-md text-sm font-light leading-7 text-white/65">
-              Begin with the details that matter. The restaurant will review
-              your preferred date, time, and the context of your visit.
+              Begin with the details that matter. Share individual preferences so
+              kitchen and service can prepare for every guest.
             </p>
           </div>
         </aside>
@@ -80,8 +80,8 @@ export default async function PublicReservationPage({
             </h2>
             <p className="mt-5 max-w-2xl text-sm font-light leading-7 text-white/55 sm:text-base">
               This is a request, not an automatic confirmation. Reservation
-              requests are reviewed by the restaurant before a table is
-              confirmed.
+              requests and each guest profile are reviewed by the restaurant before
+              a table is confirmed.
             </p>
 
             <ReservationRequestForm restaurantSlug={slug} />

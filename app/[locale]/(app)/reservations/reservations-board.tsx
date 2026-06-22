@@ -259,7 +259,8 @@ export default function ReservationsBoard({
                         Service briefing
                       </p>
                       <p className="mt-2 text-sm leading-6 text-zinc-300">
-                        {request.message ||
+                        {request.service_briefing ||
+                          request.message ||
                           "No dietary notes or briefing details captured yet."}
                       </p>
                     </div>
@@ -338,10 +339,12 @@ export default function ReservationsBoard({
 
                 <div className="rounded-xl border border-white/10 bg-black/30 p-3">
                   <p className="text-xs uppercase tracking-[0.15em] text-zinc-600">
-                    Dietary notes
+                    Service briefing
                   </p>
                   <p className="mt-1 text-zinc-300">
-                    {selectedRequest.message || "Not provided"}
+                    {selectedRequest.service_briefing ||
+                      selectedRequest.message ||
+                      "Not provided"}
                   </p>
                 </div>
 

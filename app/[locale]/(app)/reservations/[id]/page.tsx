@@ -54,9 +54,34 @@ type GuestDietaryProfileRow = {
 type ReservationGuestRow = {
   id: string;
   reservation_id: string | null;
+  guest_identity_id: string | null;
   full_name: string | null;
   guest_position: number;
   is_host: boolean;
+  guest_dietary_profiles: GuestDietaryProfileRow[] | null;
+};
+
+
+type GuestIdentityRow = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  phone: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+};
+
+type HistoricalReservationRow = {
+  id: string;
+  requested_date: string | null;
+  requested_time: string | null;
+  occasion: string | null;
+  special_request: string | null;
+  created_at: string;
+};
+
+type HistoricalGuestRow = {
+  canonical_reservation_id: string | null;
   guest_dietary_profiles: GuestDietaryProfileRow[] | null;
 };
 
@@ -145,6 +170,18 @@ function formatDateTime(value?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function uniqueValues(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function formatVisitDate(value?: string | null) {
+  if (!value) return "Not recorded";
+  return new Date(value + (value.length === 10 ? "T00:00:00Z" : "")).toLocaleDateString(
+    "pt-PT",
+    { day: "2-digit", month: "short", year: "numeric" }
+  );
 }
 
 function getGuestName(guest: ReservationGuestProfile) {
@@ -314,6 +351,7 @@ export default async function ReservationDetailPage({
       `
         id,
         reservation_id,
+        guest_identity_id,
         full_name,
         guest_position,
         is_host,
@@ -344,6 +382,7 @@ export default async function ReservationDetailPage({
     return {
       id: guest.id,
       reservation_id: guest.reservation_id || id,
+      guest_identity_id: guest.guest_identity_id,
       full_name: guest.full_name,
       guest_position: guest.guest_position,
       is_host: guest.is_host,
@@ -361,10 +400,153 @@ export default async function ReservationDetailPage({
     };
   });
 
+  const linkedHost =
+    guestProfiles.find((guest) => guest.is_host) || guestProfiles[0];
+  let guestIdentity: GuestIdentityRow | null = null;
+  let historicalReservations: HistoricalReservationRow[] = [];
+  let historicalGuestRows: HistoricalGuestRow[] = [];
+
+  if (request.recordType === "canonical" && linkedHost?.guest_identity_id) {
+    const [identityResult, reservationsResult, guestsResult] = await Promise.all([
+      supabase
+        .from("guest_identities")
+        .select("id, full_name, email, phone, first_seen_at, last_seen_at")
+        .eq("id", linkedHost.guest_identity_id)
+        .maybeSingle(),
+      supabase
+        .from("reservations")
+        .select(
+          "id, requested_date, requested_time, occasion, special_request, created_at"
+        )
+        .eq("guest_identity_id", linkedHost.guest_identity_id)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("reservation_guests")
+        .select(
+          "canonical_reservation_id, guest_dietary_profiles(id, allergies, intolerances, dietary_restrictions, dislikes, wine_preferences, notes)"
+        )
+        .eq("guest_identity_id", linkedHost.guest_identity_id),
+    ]);
+
+    guestIdentity = identityResult.data as GuestIdentityRow | null;
+    historicalReservations =
+      (reservationsResult.data as HistoricalReservationRow[]) || [];
+    historicalGuestRows =
+      (guestsResult.data as HistoricalGuestRow[]) || [];
+  }
+
+  const historyProfiles = historicalGuestRows
+    .map((guest) => ({
+      reservationId: guest.canonical_reservation_id,
+      profile: guest.guest_dietary_profiles?.[0] || null,
+    }))
+    .filter((item) => item.profile);
+  const previousProfiles = historyProfiles.filter(
+    (item) => item.reservationId !== id
+  );
+  const knownAllergies = uniqueValues(
+    historyProfiles.flatMap((item) => item.profile?.allergies || [])
+  );
+  const knownIntolerances = uniqueValues(
+    historyProfiles.flatMap((item) => item.profile?.intolerances || [])
+  );
+  const knownRestrictions = uniqueValues(
+    historyProfiles.flatMap(
+      (item) => item.profile?.dietary_restrictions || []
+    )
+  );
+  const knownDislikes = uniqueValues(
+    historyProfiles.flatMap((item) => item.profile?.dislikes || [])
+  );
+  const knownWinePreferences = uniqueValues(
+    historyProfiles.flatMap((item) =>
+      item.profile?.wine_preferences?.trim()
+        ? [item.profile.wine_preferences.trim()]
+        : []
+    )
+  );
+  const previousNotes = previousProfiles.flatMap((item) =>
+    item.profile?.notes?.trim() ? [item.profile.notes.trim()] : []
+  );
+  const historicalAllergies = uniqueValues(
+    previousProfiles.flatMap((item) => item.profile?.allergies || [])
+  );
+  const historicalIntolerances = uniqueValues(
+    previousProfiles.flatMap((item) => item.profile?.intolerances || [])
+  );
+  const historicalRestrictions = uniqueValues(
+    previousProfiles.flatMap(
+      (item) => item.profile?.dietary_restrictions || []
+    )
+  );
+  const historicalDislikes = uniqueValues(
+    previousProfiles.flatMap((item) => item.profile?.dislikes || [])
+  );
+  const historicalWinePreferences = uniqueValues(
+    previousProfiles.flatMap((item) =>
+      item.profile?.wine_preferences?.trim()
+        ? [item.profile.wine_preferences.trim()]
+        : []
+    )
+  );
+  const previousReservations = historicalReservations.filter(
+    (reservation) => reservation.id !== id
+  );
+  const previousOccasions = uniqueValues(
+    previousReservations.flatMap((reservation) =>
+      reservation.occasion?.trim() ? [reservation.occasion.trim()] : []
+    )
+  );
+  const previousReservationContext = uniqueValues(
+    previousReservations.flatMap((reservation) =>
+      reservation.special_request?.trim()
+        ? [reservation.special_request.trim()]
+        : []
+    )
+  );
+  const isReturningGuest = previousReservations.length > 0;
+  const firstReservation = historicalReservations[0];
+  const lastReservation =
+    historicalReservations[historicalReservations.length - 1];
+  const lastPreviousReservation =
+    previousReservations[previousReservations.length - 1];
+  const currentHostAllergies = linkedHost?.dietary_profile?.allergies || [];
+  const currentHostIntolerances =
+    linkedHost?.dietary_profile?.intolerances || [];
+  const currentHostRestrictions =
+    linkedHost?.dietary_profile?.dietary_restrictions || [];
+  const isCurrentlyConfirmed = (current: string[], historical: string) =>
+    current.some(
+      (value) => value.trim().toLowerCase() === historical.trim().toLowerCase()
+    );
+  const dietaryConflicts = [
+    ...historicalAllergies
+      .filter((value) => !isCurrentlyConfirmed(currentHostAllergies, value))
+      .map((value) => ({ category: "allergy", value })),
+    ...historicalIntolerances
+      .filter((value) => !isCurrentlyConfirmed(currentHostIntolerances, value))
+      .map((value) => ({ category: "intolerance", value })),
+    ...historicalRestrictions
+      .filter((value) => !isCurrentlyConfirmed(currentHostRestrictions, value))
+      .map((value) => ({ category: "restriction", value })),
+  ];
+
   const guestNames = guestProfiles.map(getGuestName);
   const hostName = getHostName(guestProfiles, request);
   const winePreferences = collectTextValues(guestProfiles, "wine_preferences");
-  const importantNotes = collectTextValues(guestProfiles, "notes");
+  const host = linkedHost;
+  const hostNotes = host?.dietary_profile?.notes?.trim() || "";
+  const [hostGuestNote, ...experienceNoteLines] = hostNotes.split("\n");
+  const reservationExperienceNotes = experienceNoteLines.join("\n").trim();
+  const importantNotes = guestProfiles
+    .map((guest) => ({
+      guest: getGuestName(guest),
+      value:
+        guest.id === host?.id && reservationExperienceNotes
+          ? hostGuestNote.trim()
+          : guest.dietary_profile?.notes?.trim() || "",
+    }))
+    .filter((item) => item.value);
   const dislikes = collectGuestValues(guestProfiles, "dislikes");
   const allergies = collectGuestValues(guestProfiles, "allergies");
   const intolerances = collectGuestValues(guestProfiles, "intolerances");
@@ -479,11 +661,25 @@ export default async function ReservationDetailPage({
           </DetailCard>
 
           <DetailCard title="Dietary profile">
-            <p>{request.dietary_notes || "No dietary notes captured yet."}</p>
+            <p>
+              {guestProfiles.length > 0
+                ? guestProfiles.length +
+                  " guest " +
+                  (guestProfiles.length === 1 ? "profile" : "profiles") +
+                  " captured. Review the guest-specific Kitchen briefing below."
+                : request.dietary_notes || "No dietary notes captured yet."}
+            </p>
           </DetailCard>
 
           <DetailCard title="Special request">
             <p>{request.message || "No special request provided."}</p>
+          </DetailCard>
+
+          <DetailCard title="Reservation experience context">
+            <p>
+              {reservationExperienceNotes ||
+                "No reservation-level experience notes provided."}
+            </p>
           </DetailCard>
 
           {request.recordType === "legacy" ? (
@@ -499,6 +695,95 @@ export default async function ReservationDetailPage({
               </p>
             </DetailCard>
           )}
+
+          <DetailCard title="Guest identity and history">
+            {!guestIdentity ? (
+              <p>
+                No stable guest identity is linked. Email or phone is required
+                for returning-guest recognition.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <p>
+                    <span className="text-zinc-500">Guest status:</span>{" "}
+                    {isReturningGuest ? "Returning guest" : "First visit"}
+                  </p>
+                  <p>
+                    <span className="text-zinc-500">First visit:</span>{" "}
+                    {formatVisitDate(
+                      firstReservation?.requested_date ||
+                        firstReservation?.created_at ||
+                        guestIdentity.first_seen_at
+                    )}
+                  </p>
+                  <p>
+                    <span className="text-zinc-500">Last visit:</span>{" "}
+                    {formatVisitDate(
+                      lastReservation?.requested_date ||
+                        lastReservation?.created_at ||
+                        guestIdentity.last_seen_at
+                    )}
+                  </p>
+                  <p>
+                    <span className="text-zinc-500">Total visits:</span>{" "}
+                    {historicalReservations.length}
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <p><span className="text-zinc-500">Known allergies:</span> {joinValues(knownAllergies)}</p>
+                  <p><span className="text-zinc-500">Known intolerances:</span> {joinValues(knownIntolerances)}</p>
+                  <p><span className="text-zinc-500">Known restrictions:</span> {joinValues(knownRestrictions)}</p>
+                  <p><span className="text-zinc-500">Known dislikes:</span> {joinValues(knownDislikes)}</p>
+                  <p className="sm:col-span-2"><span className="text-zinc-500">Known wine preferences:</span> {joinValues(knownWinePreferences)}</p>
+                </div>
+                <div>
+                  <p className="font-medium text-zinc-200">Previous notes / context</p>
+                  {previousNotes.length ? (
+                    <ul className="mt-2 space-y-2">
+                      {previousNotes.map((note, index) => (
+                        <li key={index}>{note}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No previous notes recorded.</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </DetailCard>
+
+          {isReturningGuest ? (
+            <section className="rounded-2xl border border-[#d8c16f]/30 bg-[#d8c16f]/[0.06] p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-sm font-medium uppercase tracking-[0.15em] text-[#e2cf8a]">
+                  Returning Guest Experience
+                </h2>
+                <span className="rounded-full border border-[#d8c16f]/40 bg-[#d8c16f]/10 px-3 py-1 text-xs font-medium text-[#eadb9f]">
+                  Returning guest
+                </span>
+              </div>
+              <div className="mt-4 grid gap-3 text-sm leading-6 text-zinc-300 sm:grid-cols-2">
+                <p><span className="text-zinc-500">Previous visits:</span> {previousReservations.length}</p>
+                <p><span className="text-zinc-500">Last visit:</span> {formatVisitDate(lastPreviousReservation?.requested_date || lastPreviousReservation?.created_at)}</p>
+                <p><span className="text-zinc-500">Remembered preferences:</span> {previousNotes.length ? previousNotes.join(" | ") : "None recorded"}</p>
+                <p><span className="text-zinc-500">Remembered dislikes:</span> {joinValues(historicalDislikes)}</p>
+                <p><span className="text-zinc-500">Remembered wine:</span> {joinValues(historicalWinePreferences)}</p>
+                <p><span className="text-zinc-500">Remembered dietary risks:</span> {joinValues([...historicalAllergies, ...historicalIntolerances, ...historicalRestrictions])}</p>
+                <p><span className="text-zinc-500">Previous occasion:</span> {joinValues(previousOccasions)}</p>
+                <p><span className="text-zinc-500">Previous context:</span> {joinValues(previousReservationContext)}</p>
+              </div>
+              <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3 text-sm leading-6 text-zinc-300">
+                <p className="font-medium text-zinc-100">Practical service suggestions</p>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  <li>Avoid welcoming the host as a first-time guest.</li>
+                  <li>Use previous occasion and service context discreetly.</li>
+                  <li>Reconfirm remembered preferences before acting on them.</li>
+                  <li>Reconfirm every historical dietary risk with the guest and kitchen.</li>
+                </ul>
+              </div>
+            </section>
+          ) : null}
 
           <DetailCard title="Service briefing">
             {guestProfiles.length === 0 ? (
@@ -524,6 +809,14 @@ export default async function ReservationDetailPage({
                     <span className="text-zinc-500">No-show risk:</span>{" "}
                     {getNoShowRisk(request)}
                   </p>
+                  <p>
+                    <span className="text-zinc-500">Guest history:</span>{" "}
+                    {guestIdentity
+                      ? isReturningGuest
+                        ? "Returning guest (" + historicalReservations.length + " visits)"
+                        : "First visit"
+                      : "Not linked"}
+                  </p>
                 </div>
 
                 <div>
@@ -547,6 +840,22 @@ export default async function ReservationDetailPage({
                       "No important notes recorded for service."
                   )}
                 </div>
+
+                {isReturningGuest ? (
+                  <div className="rounded-xl border border-[#d8c16f]/25 bg-[#d8c16f]/[0.06] p-3">
+                    <p className="font-medium text-[#e2cf8a]">Returning guest</p>
+                    <ul className="mt-2 space-y-1 text-zinc-300">
+                      <li>Last visited on {formatVisitDate(lastPreviousReservation?.requested_date || lastPreviousReservation?.created_at)}.</li>
+                      <li>Previously preferred: {joinValues(historicalWinePreferences)}.</li>
+                      <li>Previous dislikes: {joinValues(historicalDislikes)}.</li>
+                      <li>Avoid mentioning or welcoming the host as a new guest.</li>
+                      <li>Use previous context carefully and reconfirm preferences before service.</li>
+                    </ul>
+                    {previousNotes.length ? (
+                      <p className="mt-2 text-zinc-400">Previous context: {previousNotes.join(" | ")}</p>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 <div className="rounded-xl border border-white/10 bg-black/30 p-3">
                   <p className="font-medium text-zinc-200">
@@ -603,6 +912,34 @@ export default async function ReservationDetailPage({
                     <p>No critical guest risks recorded.</p>
                   )}
                 </div>
+
+                {isReturningGuest &&
+                (historicalAllergies.length > 0 ||
+                  historicalIntolerances.length > 0 ||
+                  historicalRestrictions.length > 0) ? (
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
+                    <p className="font-medium">Historical dietary risks</p>
+                    <p className="mt-1">
+                      Previous allergies: {joinValues(historicalAllergies)}.
+                      Previous intolerances: {joinValues(historicalIntolerances)}.
+                      Previous restrictions: {joinValues(historicalRestrictions)}.
+                    </p>
+                  </div>
+                ) : null}
+
+                {dietaryConflicts.length > 0 ? (
+                  <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-red-100">
+                    <p className="font-medium">Historical profile conflicts</p>
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                      {dietaryConflicts.map((conflict) => (
+                        <li key={conflict.category + conflict.value}>
+                          Historical {conflict.value} {conflict.category} exists but was not confirmed in the current profile.
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-2 text-red-200">Treat historical dietary risks as unresolved until the guest and kitchen reconfirm them.</p>
+                  </div>
+                ) : null}
 
                 <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-200">
                   <p className="font-medium">Critical warnings</p>

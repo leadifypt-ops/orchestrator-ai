@@ -12,6 +12,7 @@ export type ReservationRequest = {
   service: string | null;
   status: string | null;
   message: string | null;
+  service_briefing: string | null;
   restaurant_name?: string | null;
   restaurant?: string | null;
   requested_date: string | null;
@@ -42,6 +43,53 @@ type CanonicalReservationRow = {
     | null;
 };
 
+type GuestBriefingRow = {
+  canonical_reservation_id: string | null;
+  full_name: string | null;
+  guest_position: number;
+  is_host: boolean;
+  guest_dietary_profiles:
+    | {
+        dislikes: string[] | null;
+        wine_preferences: string | null;
+        notes: string | null;
+      }[]
+    | null;
+};
+
+function buildServiceBriefing(guests: GuestBriefingRow[]) {
+  const details = guests.flatMap((guest) => {
+    const profile = guest.guest_dietary_profiles?.[0];
+    if (!profile) return [];
+    const name = guest.full_name?.trim() || "Guest " + guest.guest_position;
+    const notes = profile.notes?.trim() || "";
+    const [guestNote, ...experienceLines] = notes.split("\n");
+    const experienceContext = guest.is_host
+      ? experienceLines.join("\n").trim()
+      : "";
+    const context = [
+      profile.wine_preferences?.trim()
+        ? "wine: " + profile.wine_preferences.trim()
+        : "",
+      profile.dislikes?.length
+        ? "dislikes: " + profile.dislikes.join(", ")
+        : "",
+      (experienceContext ? guestNote : notes)
+        ? "notes: " + (experienceContext ? guestNote : notes)
+        : "",
+    ].filter(Boolean);
+    const guestSummary = context.length
+      ? [name + " - " + context.join("; ")]
+      : [];
+
+    return experienceContext
+      ? [...guestSummary, "Reservation context: " + experienceContext]
+      : guestSummary;
+  });
+
+  return details.join(" | ") || null;
+}
+
 export type ReservationMetrics = {
   total: number;
   newRequests: number;
@@ -63,6 +111,32 @@ export default async function ReservationsPage() {
     .eq("status", "pending")
     .order("created_at", { ascending: false });
 
+  const canonicalIds = (canonicalRows || []).map((row) => row.id);
+  let guestRows: GuestBriefingRow[] = [];
+  if (canonicalIds.length > 0) {
+    const { data = [] } = await supabase
+      .from("reservation_guests")
+      .select(
+        "canonical_reservation_id, full_name, guest_position, is_host, guest_dietary_profiles(dislikes, wine_preferences, notes)"
+      )
+      .in("canonical_reservation_id", canonicalIds)
+      .order("guest_position", { ascending: true });
+    guestRows = (data as GuestBriefingRow[]) || [];
+  }
+
+  const briefingByReservation = new Map<string, string | null>();
+  for (const reservationId of canonicalIds) {
+    briefingByReservation.set(
+      reservationId,
+      buildServiceBriefing(
+        guestRows.filter(
+          (guest) => guest.canonical_reservation_id === reservationId
+        )
+      )
+    );
+  }
+
+
   const requests = ((canonicalRows as CanonicalReservationRow[]) ?? []).map(
     (row): ReservationRequest => {
       const restaurant = Array.isArray(row.restaurants)
@@ -78,6 +152,7 @@ export default async function ReservationsPage() {
         service: restaurant?.name || null,
         status: row.status,
         message: row.special_request,
+        service_briefing: briefingByReservation.get(row.id) || null,
         restaurant_name: restaurant?.name || null,
         restaurant: restaurant?.slug || null,
         requested_date: row.requested_date,

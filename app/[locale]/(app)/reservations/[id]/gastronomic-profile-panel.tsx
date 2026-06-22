@@ -16,6 +16,7 @@ export type GuestDietaryProfile = {
 export type ReservationGuestProfile = {
   id: string;
   reservation_id: string;
+  guest_identity_id?: string | null;
   full_name: string | null;
   guest_position: number;
   is_host: boolean;
