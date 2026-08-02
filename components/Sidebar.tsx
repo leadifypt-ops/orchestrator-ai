@@ -17,6 +17,7 @@ export default function Sidebar({ email }: SidebarProps) {
     { label: "Dashboard", href: `/${locale}/business/dashboard` },
     { label: "Restaurants", href: `/${locale}/business/restaurants` },
     { label: "Reservations", href: `/${locale}/business/reservations` },
+    { label: "Briefings", href: `/${locale}/business/briefings` },
     { label: "Guests", href: `/${locale}/business/guests` },
     { label: "Experiences", href: `/${locale}/business/experiences` },
     { label: "Channels", href: `/${locale}/business/channels` },
