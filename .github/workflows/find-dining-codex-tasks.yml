@@ -1,0 +1,130 @@
+name: Find Dining Codex issue to draft PR (opt-in)
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: find-dining-codex-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  implement:
+    name: Codex isolated implementation
+    if: ${{ vars.CODEX_TASKS_ENABLED == 'true' && vars.CODEX_SYNC_CONFIRMED == 'true' && github.event.label.name == 'codex-ready' && github.event.issue.user.login == 'leadifypt-ops' && github.actor == 'leadifypt-ops' && github.event.issue.state == 'open' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted main without write credentials
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Execute scoped issue in local sandbox
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ':workspace'
+          prompt: |
+            Implement ONLY this trusted Find Dining issue in the current checkout.
+            You must read AGENTS.md, docs/find-dine-master-v2.md and applicable DevLogs.
+            You must not touch production, run remote migrations, deploy, send messages,
+            modify other projects, or create payments/reservation decisions.
+            No code changes to .github/, supabase/migrations/, AGENTS.md or secrets.
+            Preserve the historical DevLog, adding only append-only updates if relevant.
+            Make a bounded change with checks; if blocked, stop without inventing data.
+            Never attempt to bypass sandbox or obtain credentials.
+
+            GitHub issue #${{ github.event.issue.number }}:
+            Title: ${{ github.event.issue.title }}
+            Description:
+            ${{ github.event.issue.body }}
+
+      - name: Prepare patch with security/path guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Codex produced no changes. No PR will be published."
+            exit 1
+          fi
+          git diff --cached --check
+          forbidden="$(git diff --cached --name-only | grep -E '(^\.github/|^supabase/migrations/|^AGENTS\.md$|(^|/)\.env([./]|$)|\.pem$|\.key$|^\.git/)' || true)"
+          if [ -n "$forbidden" ]; then
+            echo "Blocked sensitive paths:" >&2
+            printf '%s\n' "$forbidden" >&2
+            exit 1
+          fi
+          git diff --cached --binary > "$RUNNER_TEMP/find-dining-task.patch"
+          test -s "$RUNNER_TEMP/find-dining-task.patch"
+
+      - name: Transfer only the patch (no tokens)
+        uses: actions/upload-artifact@v4
+        with:
+          name: find-dining-issue-${{ github.event.issue.number }}-patch
+          path: ${{ runner.temp }}/find-dining-task.patch
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: Publish draft PR without executing patch
+    needs: implement
+    if: ${{ needs.implement.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Download patch
+        uses: actions/download-artifact@v4
+        with:
+          name: find-dining-issue-${{ github.event.issue.number }}-patch
+          path: ${{ runner.temp }}/codex-patch
+
+      - name: Apply patch and create branch safely
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          branch="codex/issue-$ISSUE_NUMBER-run-$RUN_ID"
+          git checkout -b "$branch"
+          git apply --index --check "$RUNNER_TEMP/codex-patch/find-dining-task.patch"
+          git apply --index "$RUNNER_TEMP/codex-patch/find-dining-task.patch"
+          git diff --cached --check
+          forbidden="$(git diff --cached --name-only | grep -E '(^\.github/|^supabase/migrations/|^AGENTS\.md$|(^|/)\.env([./]|$)|\.pem$|\.key$|^\.git/)' || true)"
+          if [ -n "$forbidden" ]; then
+            echo "Blocked sensitive paths in publishing job" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "codex(find-dining): propose fix for issue #$ISSUE_NUMBER"
+          git push origin "HEAD:refs/heads/$branch"
+          echo "DRAFT_BRANCH=$branch" >> "$GITHUB_ENV"
+
+      - name: Open draft PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          gh pr create --base main --head "$DRAFT_BRANCH" --draft \
+            --title "codex(find-dining): proposal for issue #$ISSUE_NUMBER" \
+            --body "Proposed by the opt-in Codex task runner for issue #$ISSUE_NUMBER. Read AGENTS.md. This is a **draft** and requires human review, CI and approval before merge. No production migration or deployment is authorized."
