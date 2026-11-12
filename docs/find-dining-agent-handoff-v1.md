@@ -23,10 +23,10 @@ Date: 2026-11-12. Status: proposal, not an active autonomous loop.
 - Document exact discrepancies and create a reconciliation PR.
 
 ## Automation roadmap
-- Phase 1: AGENTS.md + PR typechecking (this PR).
-- Phase 2: baseline lint/build checks, branch protection, human approvals, CODEOWNERS if appropriate.
-- Phase 3: opt-in Codex review and trusted-issue-to-draft-PR runner using the official Codex GitHub integration, scoped permissions and secure secret management.
-- Phase 4: scheduled status digests and selective task dispatch, subject to budgets and explicit security review.
+- Phase 1: AGENTS.md and PR TypeScript CI, including a documented lockfile failure.
+- Phase 2 (prepared but disabled in this PR): read-only Codex PR review and trusted GitHub Issue -> isolated Codex implementation -> draft PR runner. These will not execute Codex without explicit variables and a repository secret.
+- Phase 3: baseline lint/build checks, branch protection, human approvals, cost controls and secure pilot before enabling agents.
+- Phase 4: scheduled status digests and selective task dispatch after successful pilot.
 
 ## Security
 No production database credentials in general-purpose agent jobs. Never execute untrusted PR code in a privileged secrets-enabled context. Disable automatic merges. Separate paid API usage and budgets from ChatGPT subscription. Limit runner time, retries, permissions, concurrency and number of tasks. Store secrets only in approved secret managers.
@@ -39,3 +39,30 @@ No production database credentials in general-purpose agent jobs. Never execute 
 - [ ] Configure scoped Codex credentials, budget and workflow security.
 - [ ] Run a harmless documentation-only issue-to-draft-PR trial.
 - [ ] Enable further autonomous jobs only after the trial passes.
+
+## 2026-11-12 validation and current backlog
+
+- PR #1: https://github.com/leadifypt-ops/orchestrator-ai/pull/1
+- First CI run `43156585420` failed at `npm ci` with `Missing: @swc/helpers@0.5.24 from lock file`. The TypeScript test did not run. This predates any Codex implementation and is tracked as [Issue #2](https://github.com/leadifypt-ops/orchestrator-ai/issues/2).
+- Unpublished Block 49 recovery and non-mutating remote migration reconciliation are tracked as [Issue #3](https://github.com/leadifypt-ops/orchestrator-ai/issues/3).
+
+## Opt-in Codex workflow activation (not yet done)
+
+1. Review this PR, restore the correct latest source code and confirm remote migrations. Do not enable `CODEX_SYNC_CONFIRMED` until they match.
+2. Merge the PR and protect `main` (required CI, PR review, no unattended merge).
+3. Create an OpenAI API key with strict budget controls; store it only as GitHub repository secret `OPENAI_API_KEY`. GitHub Actions Codex uses paid API billing independent of ChatGPT subscription.
+4. In repository Settings > Secrets and variables > Actions > Variables, enable `CODEX_REVIEW_ENABLED=true` to allow read-only PR reviews. This is optional and charges API usage.
+5. Test a trusted non-sensitive issue. After the pilot, enable `CODEX_SYNC_CONFIRMED=true` and `CODEX_TASKS_ENABLED=true`, create the `codex-ready` label, and have the repo owner apply it only to a carefully reviewed, small, owner-created issue.
+6. Ensure GitHub Actions is permitted to create pull requests and the default token can dispatch workflow runs. The workflow publishes a **draft** PR only; it dispatches the separate TypeScript check because PRs opened using GitHub's built-in `GITHUB_TOKEN` normally do not trigger regular PR workflows.
+7. Never mark an issue `codex-ready` if it requests database migrations, production writes, secrets, payments or changes to protected operational workflows. Manually inspect the generated PR, CI and logs.
+
+### Security design
+
+The issue worker uses an API-key-backed Codex action with restricted workspace access and a read-only GitHub token. It uploads a patch, not credentials. A separate job with write permission applies the patch **without running its code**, rejects protected paths, creates a fresh branch and draft PR. This is an additional layer of protection, not a complete guarantee; require human review and branch protection. Lint/build and runtime behavior beyond TypeScript require additional validation before release.
+
+### Current limitations
+
+- There is no agent running continuously merely because files exist in GitHub.
+- A local-only Codex workspace is not available to GitHub Actions without its code being published safely.
+- The bot-generated PR may not trigger a regular PR review workflow through `GITHUB_TOKEN`; the runner explicitly dispatches TypeScript CI, but Codex PR review may need a separate authenticated trigger.
+- No API key, runtime variable, branch protection or scheduled job has been configured by this PR.
