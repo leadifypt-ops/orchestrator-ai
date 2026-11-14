@@ -2,7 +2,7 @@ name: Find Dining Codex issue to draft PR (opt-in)
 
 on:
   issues:
-    types: [labeled]
+    types: [opened, labeled]
 
 permissions:
   contents: read
@@ -14,7 +14,7 @@ concurrency:
 jobs:
   implement:
     name: Codex isolated implementation
-    if: ${{ vars.CODEX_TASKS_ENABLED == 'true' && vars.CODEX_SYNC_CONFIRMED == 'true' && github.event.label.name == 'codex-ready' && github.event.issue.user.login == 'leadifypt-ops' && github.actor == 'leadifypt-ops' && github.event.issue.state == 'open' }}
+    if: ${{ vars.CODEX_TASKS_ENABLED == 'true' && vars.CODEX_SYNC_CONFIRMED == 'true' && github.event.issue.user.login == 'leadifypt-ops' && github.event.issue.state == 'open' && ((github.event.action == 'opened' && startsWith(github.event.issue.title, '[codex-auto] ')) || (github.event.action == 'labeled' && github.event.label.name == 'codex-ready' && github.actor == 'leadifypt-ops')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
