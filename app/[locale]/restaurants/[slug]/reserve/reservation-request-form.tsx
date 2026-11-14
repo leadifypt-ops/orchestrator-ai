@@ -1,12 +1,55 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
-const slots = Array.from({ length: 13 }, (_, i) => { const m = 19 * 60 + i * 15; return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; });
-const choices = { allergies: ["Shellfish", "Fish", "Peanuts", "Tree nuts", "Egg", "Milk", "Sesame"], intolerances: ["Lactose", "Gluten", "Fructose", "Histamine"], dietary_restrictions: ["Vegetarian", "Vegan", "Pescatarian", "Halal", "Kosher", "No alcohol"] } as const;
+const choices = {
+  allergies: ["Shellfish", "Fish", "Peanuts", "Tree nuts", "Egg", "Milk", "Sesame"],
+  intolerances: ["Lactose", "Gluten", "Fructose", "Histamine"],
+  dietary_restrictions: ["Vegetarian", "Vegan", "Pescatarian", "Halal", "Kosher", "No alcohol"],
+} as const;
+
 type ListKey = keyof typeof choices;
-type GuestProfile = { name: string; allergies: string[]; intolerances: string[]; dietary_restrictions: string[]; dislikes: string; wine_preference: string; notes: string; reviewed: boolean };
-const emptyGuest = (): GuestProfile => ({ name: "", allergies: [], intolerances: [], dietary_restrictions: [], dislikes: "", wine_preference: "", notes: "", reviewed: false });
+type GuestProfile = {
+  name: string;
+  allergies: string[];
+  intolerances: string[];
+  dietary_restrictions: string[];
+  dislikes: string;
+  wine_preference: string;
+  notes: string;
+  reviewed: boolean;
+};
+type PublicSlot = {
+  date: string;
+  time: string;
+  service_period_name?: string;
+  status: "available" | "full" | "closed" | "past" | string;
+  remaining_capacity?: number;
+  timezone?: string;
+};
+type SubmissionState = {
+  status: "idle" | "success" | "error";
+  message: string;
+};
+
+const emptyGuest = (): GuestProfile => ({
+  name: "",
+  allergies: [],
+  intolerances: [],
+  dietary_restrictions: [],
+  dislikes: "",
+  wine_preference: "",
+  notes: "",
+  reviewed: false,
+});
+const inputClasses =
+  "mt-2 w-full rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3.5 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-[#d8c16f]/60 focus:bg-white/[0.055]";
+
+function isoDate(daysFromToday = 0) {
+  const date = new Date();
+  date.setDate(date.getDate() + daysFromToday);
+  return date.toISOString().slice(0, 10);
+}
 
 function GuestCard({ guest, index, update }: { guest: GuestProfile; index: number; update: (guest: GuestProfile) => void }) {
   const text = (key: "name" | "dislikes" | "wine_preference" | "notes", value: string) => update({ ...guest, [key]: value, reviewed: false });
@@ -20,23 +63,50 @@ function GuestCard({ guest, index, update }: { guest: GuestProfile; index: numbe
   </article>;
 }
 
-const inputClasses =
-  "mt-2 w-full rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3.5 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-[#d8c16f]/60 focus:bg-white/[0.055]";
-
-type SubmissionState = {
-  status: "idle" | "success" | "error";
-  message: string;
-};
-
 export default function ReservationRequestForm({
   restaurantSlug,
+  restaurantName,
 }: {
   restaurantSlug: string;
+  restaurantName: string;
 }) {
   const [state, setState] = useState<SubmissionState>({ status: "idle", message: "" });
   const [pending, setPending] = useState(false);
   const [partySize, setPartySize] = useState(2);
+  const [requestedDate, setRequestedDate] = useState(isoDate(1));
+  const [selectedTime, setSelectedTime] = useState("");
+  const [slots, setSlots] = useState<PublicSlot[]>([]);
+  const [availabilityState, setAvailabilityState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [guests, setGuests] = useState<GuestProfile[]>([emptyGuest(), emptyGuest()]);
+  const availableSlots = useMemo(() => slots.filter((slot) => slot.status === "available"), [slots]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadSlots() {
+      setAvailabilityState("loading");
+      setSelectedTime("");
+      try {
+        const params = new URLSearchParams({
+          restaurant_slug: restaurantSlug,
+          requested_date: requestedDate,
+          party_size: String(partySize),
+        });
+        const response = await fetch(`/api/public/reservations?${params}`, { signal: controller.signal });
+        const result = await response.json();
+        if (!response.ok || !result?.success || !Array.isArray(result.slots)) {
+          throw new Error("Availability unavailable");
+        }
+        setSlots(result.slots);
+        setAvailabilityState("ready");
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setSlots([]);
+        setAvailabilityState("error");
+      }
+    }
+    loadSlots();
+    return () => controller.abort();
+  }, [partySize, requestedDate, restaurantSlug]);
 
   function changePartySize(size: number) {
     setPartySize(size);
@@ -45,6 +115,10 @@ export default function ReservationRequestForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!selectedTime) {
+      setState({ status: "error", message: "Please select an available time before submitting." });
+      return;
+    }
     setPending(true);
     setState({ status: "idle", message: "" });
 
@@ -54,20 +128,25 @@ export default function ReservationRequestForm({
       const response = await fetch("/api/public/reservations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, party_size: partySize, guest_profiles: guests, restaurant_slug: restaurantSlug }),
+        body: JSON.stringify({
+          ...payload,
+          requested_date: requestedDate,
+          requested_time: selectedTime,
+          party_size: partySize,
+          guest_profiles: guests,
+          restaurant_slug: restaurantSlug,
+        }),
       });
       const result: unknown = await response.json();
       const message =
         result && typeof result === "object" && "message" in result
           ? String(result.message)
-          : "We could not submit your request. Please try again.";
+          : "We could not submit your request. Please try another time.";
 
       setState({ status: response.ok ? "success" : "error", message });
+      if (!response.ok) setAvailabilityState("idle");
     } catch {
-      setState({
-        status: "error",
-        message: "We could not submit your request. Please try again.",
-      });
+      setState({ status: "error", message: "We could not submit your request. Please try another time." });
     } finally {
       setPending(false);
     }
@@ -75,18 +154,11 @@ export default function ReservationRequestForm({
 
   if (state.status === "success") {
     return (
-      <div
-        className="mt-10 rounded-3xl border border-[#d8c16f]/25 bg-[#d8c16f]/[0.07] p-6 sm:p-8"
-        role="status"
-      >
-        <p className="text-[0.62rem] font-semibold uppercase tracking-[0.24em] text-[#d8c16f]">
-          Request received
-        </p>
+      <div className="mt-10 rounded-3xl border border-[#d8c16f]/25 bg-[#d8c16f]/[0.07] p-6 sm:p-8" role="status">
+        <p className="text-[0.62rem] font-semibold uppercase tracking-[0.24em] text-[#d8c16f]">Request received</p>
         <h3 className="mt-4 text-3xl font-light">Thank you.</h3>
         <p className="mt-4 text-sm leading-7 text-white/60">{state.message}</p>
-        <p className="mt-4 text-sm leading-7 text-white/45">
-          This request is pending review and does not confirm availability or a table.
-        </p>
+        <p className="mt-4 text-sm leading-7 text-white/45">This request is pending review and does not confirm a table.</p>
       </div>
     );
   }
@@ -94,36 +166,23 @@ export default function ReservationRequestForm({
   return (
     <form className="mt-10 space-y-10" onSubmit={handleSubmit}>
       <fieldset disabled={pending}>
-        <legend className="text-xs font-semibold uppercase tracking-[0.2em] text-white/45">
-          1. Reservation Details
-        </legend>
+        <legend className="text-xs font-semibold uppercase tracking-[0.2em] text-white/45">1. Reservation Details</legend>
         <div className="mt-5 grid gap-5 sm:grid-cols-2">
-          <label className="text-sm text-white/65 sm:col-span-2">
-            Name
-            <input className={inputClasses} name="name" type="text" autoComplete="name" maxLength={160} placeholder="Your full name" required />
-          </label>
-          <label className="text-sm text-white/65">
-            Email
-            <input className={inputClasses} name="email" type="email" autoComplete="email" maxLength={320} placeholder="you@example.com" required />
-          </label>
-          <label className="text-sm text-white/65">
-            Phone <span className="text-white/30">(optional)</span>
-            <input className={inputClasses} name="phone" type="tel" autoComplete="tel" maxLength={50} placeholder="+351 900 000 000" />
-          </label>
+          <label className="text-sm text-white/65 sm:col-span-2">Name<input className={inputClasses} name="name" type="text" autoComplete="name" maxLength={160} placeholder="Your full name" required /></label>
+          <label className="text-sm text-white/65">Email<input className={inputClasses} name="email" type="email" autoComplete="email" maxLength={320} placeholder="you@example.com" required /></label>
+          <label className="text-sm text-white/65">Phone <span className="text-white/30">(optional)</span><input className={inputClasses} name="phone" type="tel" autoComplete="tel" maxLength={50} placeholder="+351 900 000 000" /></label>
         </div>
-        <div className="mt-5 grid gap-5 sm:grid-cols-3">
-          <label className="text-sm text-white/65">
-            Preferred date
-            <input className={inputClasses} name="requested_date" type="date" required />
-          </label>
-          <label className="text-sm text-white/65">
-            Preferred time
-            <select className={inputClasses} name="requested_time" defaultValue="" required><option value="" disabled>Select a time</option>{slots.map((slot) => <option className="bg-[#11110e]" key={slot} value={slot}>{slot}</option>)}</select>
-          </label>
-          <label className="text-sm text-white/65">
-            Number of guests
-            <select className={inputClasses} value={partySize} onChange={(event) => changePartySize(Number(event.target.value))}>{Array.from({ length: 20 }, (_, index) => index + 1).map((size) => <option className="bg-[#11110e]" key={size} value={size}>{size}</option>)}</select>
-          </label>
+        <div className="mt-5 grid gap-5 sm:grid-cols-2">
+          <label className="text-sm text-white/65">Preferred date<input className={inputClasses} value={requestedDate} onChange={(event) => setRequestedDate(event.target.value)} min={isoDate()} max={isoDate(180)} type="date" required /></label>
+          <label className="text-sm text-white/65">Number of guests<select className={inputClasses} value={partySize} onChange={(event) => changePartySize(Number(event.target.value))}>{Array.from({ length: 20 }, (_, index) => index + 1).map((size) => <option className="bg-[#11110e]" key={size} value={size}>{size}</option>)}</select></label>
+        </div>
+        <div className="mt-6">
+          <p className="text-sm text-white/65">Available times for {restaurantName}</p>
+          {availabilityState === "loading" ? <p className="mt-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/45">Checking availability...</p> : null}
+          {availabilityState === "error" ? <p className="mt-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">Availability is temporarily unavailable.</p> : null}
+          {availabilityState === "ready" && availableSlots.length === 0 ? <p className="mt-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/45">No public reservation times are available for this date and party size.</p> : null}
+          {availableSlots.length > 0 ? <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">{availableSlots.map((slot) => <button aria-pressed={selectedTime === slot.time} className={`rounded-2xl border px-4 py-3 text-sm transition ${selectedTime === slot.time ? "border-[#d8c16f] bg-[#d8c16f]/20 text-[#f2dda1]" : "border-white/10 bg-white/[0.025] text-white/65 hover:border-white/30 hover:text-white"}`} key={`${slot.date}-${slot.time}`} onClick={() => setSelectedTime(slot.time)} type="button"><span className="block font-medium">{slot.time}</span><span className="mt-1 block text-[0.65rem] text-white/35">{slot.service_period_name || "Service"}</span></button>)}</div> : null}
+          <input name="requested_time" type="hidden" value={selectedTime} />
         </div>
       </fieldset>
 
@@ -135,7 +194,7 @@ export default function ReservationRequestForm({
       </fieldset>
 
       <fieldset className="border-t border-white/10 pt-9" disabled={pending}>
-        <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-white/45">4. Experience Context</legend>
+        <legend className="px-2 text-xs font-semibold uppercase tracking-[0.2em] text-white/45">3. Experience Context</legend>
         <div className="mt-5 grid gap-5 sm:grid-cols-2">
           <label className="text-sm text-white/65">Occasion <span className="text-white/30">(optional)</span><input className={inputClasses} name="occasion" type="text" maxLength={200} placeholder="Anniversary, birthday" /></label>
           <label className="text-sm text-white/65 sm:col-span-2">Special request <span className="text-white/30">(optional)</span><textarea className={`${inputClasses} min-h-28 resize-y`} name="special_request" maxLength={2000} placeholder="Anything the restaurant should consider for this request." /></label>
@@ -145,10 +204,10 @@ export default function ReservationRequestForm({
 
       <div className="border-t border-white/10 pt-7">
         {state.status === "error" ? <p className="mb-4 text-sm text-red-300" role="alert">{state.message}</p> : null}
-        <button type="submit" disabled={pending} className="w-full rounded-full bg-[#dfc86f] px-8 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-[#11100d] transition hover:bg-white disabled:cursor-wait disabled:opacity-60 sm:w-auto">
+        <button type="submit" disabled={pending || !selectedTime} className="w-full rounded-full bg-[#dfc86f] px-8 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-[#11100d] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto">
           {pending ? "Submitting..." : "Submit Reservation Request"}
         </button>
-        <p className="mt-4 max-w-xl text-xs leading-6 text-white/40">Submitting creates a request for restaurant review. It does not confirm availability or a table.</p>
+        <p className="mt-4 max-w-xl text-xs leading-6 text-white/40">Submitting creates a request for restaurant review. The restaurant rechecks availability before the request is stored.</p>
       </div>
     </form>
   );

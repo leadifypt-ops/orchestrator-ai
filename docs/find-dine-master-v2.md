@@ -4,9 +4,9 @@
 
 ## 1. Identificação do documento
 
-Este documento é a fonte canónica de produto para o projeto Find Dining / Find Dine após a conclusão do Block 48. Substitui o enquadramento histórico da versão 1.2 sem apagar decisões estratégicas anteriores: cada decisão é reclassificada conforme o estado real do repositório, das migrations aplicadas, das validações e dos DevLogs versionados.
+Este documento é a fonte canónica de produto para o projeto Find Dining / Find Dine após a conclusão do Block 49. Substitui o enquadramento histórico da versão 1.2 sem apagar decisões estratégicas anteriores: cada decisão é reclassificada conforme o estado real do repositório, das migrations aplicadas, das validações e dos DevLogs versionados.
 
-Data de referência técnica: Blocks 28–48 preservados em Git, branch `main`, remoto `origin/main`, histórico Supabase local/remoto alinhado em 33/33, última migration aplicada `20260706000300_pre_service_briefing_handoff.sql`.
+Data de referência técnica: Blocks 28–49 preservados em Git, branch `main`, remoto `origin/main`, histórico Supabase local/remoto alinhado em 35/35, última migration aplicada `20260707000200_public_reservation_slots_capacity_fix.sql`.
 
 ## 2. Visão do produto
 
@@ -38,7 +38,7 @@ A arquitetura de produto mantém quatro áreas:
 
 ## 6. Estado atual do produto
 
-O projeto já não está apenas em arquitetura ou planeamento. Após o Block 48, Find Dining possui uma base operacional real e validada remotamente:
+O projeto já não está apenas em arquitetura ou planeamento. Após o Block 49, Find Dining possui uma base operacional real e validada remotamente:
 
 - arquitetura Business-scoped e Restaurant-scoped;
 - memberships e roles owner/manager/staff;
@@ -57,7 +57,11 @@ O projeto já não está apenas em arquitetura ou planeamento. Após o Block 48,
 - tokens públicos de confirmação;
 - preferências/notas submetidas por guests;
 - review humana de guest updates;
-- briefings pré-serviço e handoffs com acknowledgements.
+- briefings pré-serviço e handoffs com acknowledgements;
+- public reservation enablement explícito por restaurante;
+- disponibilidade pública guest-safe derivada da arquitetura canónica;
+- submissão pública V3 com revalidação e proteção transacional de capacidade;
+- timezone canónico por restaurante.
 
 O produto ainda não entrega o marketplace completo, guest accounts completas, onboarding final, admin completo, pagamentos, card guarantee, waitlist, seating, floor plan, envio WhatsApp/email/SMS por provider ou automações de decisão.
 
@@ -68,9 +72,9 @@ O produto ainda não entrega o marketplace completo, guest accounts completas, o
 - RLS habilitado nas principais tabelas operacionais novas.
 - RPCs autenticadas e security-definer para mutations sensíveis.
 - Padrões append-only para auditoria e timeline.
-- Migrations remotas alinhadas em 33/33.
-- Última migration aplicada: `20260706000300_pre_service_briefing_handoff.sql`.
-- Blocks 28–48 preservados em Git e enviados para `origin/main`.
+- Migrations remotas alinhadas em 35/35.
+- Última migration aplicada: `20260707000200_public_reservation_slots_capacity_fix.sql`.
+- Blocks 28–49 preservados em Git e enviados para `origin/main`.
 - Não existe provider externo ativo para envio automático de comunicações.
 - Decisões de reserva, comunicações, guest updates, briefings e handoffs permanecem humanos.
 
@@ -78,7 +82,7 @@ O produto ainda não entrega o marketplace completo, guest accounts completas, o
 
 O MVP histórico incluía conta guest, perfil gastronómico, discovery, página de restaurante, reservas, menus, alergias, observações, dashboard de restaurante, aceitação/rejeição, gestão operacional e living briefing.
 
-O MVP real implementado até ao Block 48 cobre principalmente a camada operacional e parte do fluxo público: página pública e pedido de reserva; dados gastronómicos/alimentares no pedido e por guest; gestão Business de reservas; decisão manual; capacidade e disponibilidade informativa; comunicações internas; confirmação pública por token; review humana de atualizações de guests; pre-service briefing e handoff.
+O MVP real implementado até ao Block 49 cobre principalmente a camada operacional e parte do fluxo público: página pública e pedido de reserva; dados gastronómicos/alimentares no pedido e por guest; gestão Business de reservas; decisão manual; capacidade e disponibilidade pública revalidada na base de dados; comunicações internas; confirmação pública por token; review humana de atualizações de guests; pre-service briefing e handoff.
 
 Conta guest completa, marketplace discovery premium, menus antecipados, pagamento/card guarantee e automações externas permanecem fora do MVP implementado.
 
@@ -88,7 +92,8 @@ Conta guest completa, marketplace discovery premium, menus antecipados, pagament
 |---|---|---|---|
 | Business memberships e roles | Implemented | Migrations/RLS e uso nas RPCs Blocks 40–48 | Roles owner/manager/staff controlam permissões. |
 | Reservas canónicas | Implemented | Fluxo público e rotas internas de reservations | Novas reservas permanecem pendentes até decisão humana. |
-| Public reservation flow | Implemented | RPCs públicas V1/V2 e rota pública | Slots são pedidos, não disponibilidade garantida. |
+| Public reservation flow | Implemented | RPCs públicas V1/V2/V3 e rota pública | V3 revalida disponibilidade canónica na base de dados antes de criar pedido pendente. |
+| Public availability contract | Implemented | Block 49 | RPC guest-safe expõe apenas slots mínimos, sem tabelas/razões/notas internas. |
 | Guest identities e perfis consolidados | Implemented | Blocks 28–32 | Inclui histórico e gestão de qualidade. |
 | Dietary profiles | Implemented | Migration gastronómica e integrações Blocks 28–48 | Usado como contexto; não atualizado automaticamente por guest submissions. |
 | Internal notes e timeline | Implemented | Blocos de reservas, comunicação, guest updates e briefings | Timeline recebe eventos operacionais. |
@@ -97,7 +102,7 @@ Conta guest completa, marketplace discovery premium, menus antecipados, pagament
 | SLA governance | Implemented | Block 40 | Informativo; sem auto assignment/escalation/closure. |
 | Service periods e capacidade | Implemented | Block 41 | Configuração operacional; não bloqueia reservas. |
 | Calendário operacional e projeção | Implemented | Block 42 | Read-only/informativo, com períodos overnight. |
-| Manual overrides | Implemented | Block 43 | Contexto temporário auditado; sem consumo automático por reservas. |
+| Manual overrides | Implemented | Block 43 | Contexto temporário auditado; Block 49 consome capacidade reduzida/ajustada para disponibilidade pública, sem expor detalhes internos. |
 | Manual reservation decisions | Implemented | Block 44 | Accept/reject/return to pending via RPCs humanas. |
 | Guest communication drafts | Implemented | Block 45 | Draft/ready/marked_sent/cancelled; `marked_sent` é afirmação humana. |
 | Public confirmation tokens | Implemented | Block 46 | Token opaco, hash digest, expiry, revogação. |

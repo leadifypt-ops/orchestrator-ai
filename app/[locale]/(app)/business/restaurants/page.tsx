@@ -20,6 +20,8 @@ type Restaurant = {
   chef_story: string | null;
   brand_primary_color: string | null;
   brand_accent_color: string | null;
+  public_reservations_enabled?: boolean | null;
+  restaurant_timezone?: string | null;
   created_at: string | null;
   updated_at?: string | null;
 };
@@ -85,9 +87,40 @@ export default async function RestaurantsPage({ params }: RestaurantsPageProps) 
         .order("created_at", { ascending: false })
     : { data: [], error: null };
   const { data: restaurants = [] } = restaurantResult;
-  const error = membershipsError || restaurantResult.error;
+  const restaurantIds = (restaurants || []).map((restaurant) => restaurant.id);
+  const [periodsResult, calendarsResult, capacitiesResult] = restaurantIds.length
+    ? await Promise.all([
+        supabase
+          .from("business_service_periods")
+          .select("id, restaurant_id, active")
+          .in("restaurant_id", restaurantIds),
+        supabase
+          .from("service_period_calendar_settings")
+          .select("service_period_id, restaurant_id")
+          .in("restaurant_id", restaurantIds),
+        supabase
+          .from("reservation_capacity_settings")
+          .select("service_period_id, restaurant_id")
+          .in("restaurant_id", restaurantIds),
+      ])
+    : [
+        { data: [], error: null },
+        { data: [], error: null },
+        { data: [], error: null },
+      ];
+  const error = membershipsError || restaurantResult.error || periodsResult.error || calendarsResult.error || capacitiesResult.error;
 
   const safeRestaurants = (restaurants as Restaurant[]) ?? [];
+  const activePeriodsByRestaurant = new Map<string, string[]>();
+  for (const period of periodsResult.data || []) {
+    if (!period.active) continue;
+    activePeriodsByRestaurant.set(period.restaurant_id, [
+      ...(activePeriodsByRestaurant.get(period.restaurant_id) || []),
+      period.id,
+    ]);
+  }
+  const calendarPeriodIds = new Set((calendarsResult.data || []).map((row) => row.service_period_id));
+  const capacityPeriodIds = new Set((capacitiesResult.data || []).map((row) => row.service_period_id));
 
   return (
     <div className="space-y-6 p-8">
@@ -142,6 +175,19 @@ export default async function RestaurantsPage({ params }: RestaurantsPageProps) 
           const reservationReadiness = getReservationReadiness(restaurant);
           const publicPageStatus = restaurant.slug ? "Published" : "Draft";
           const lastUpdated = restaurant.updated_at || restaurant.created_at;
+          const activePeriodIds = activePeriodsByRestaurant.get(restaurant.id) || [];
+          const hasActivePeriod = activePeriodIds.length > 0;
+          const hasCalendar = activePeriodIds.some((id) => calendarPeriodIds.has(id));
+          const hasCapacity = activePeriodIds.some((id) => capacityPeriodIds.has(id));
+          const profileReady = reservationReadiness === 100;
+          const publicReservationReady = Boolean(
+            restaurant.public_reservations_enabled
+              && restaurant.restaurant_timezone
+              && profileReady
+              && hasActivePeriod
+              && hasCalendar
+              && hasCapacity
+          );
 
           return (
             <article
@@ -167,6 +213,9 @@ export default async function RestaurantsPage({ params }: RestaurantsPageProps) 
                     <span>
                       Last updated: {formatDate(lastUpdated)}
                     </span>
+                    <span>
+                      Timezone: {restaurant.restaurant_timezone || "Not set"}
+                    </span>
                   </div>
 
                   <p className="mt-4 max-w-3xl text-sm leading-6 text-zinc-400">
@@ -191,7 +240,7 @@ export default async function RestaurantsPage({ params }: RestaurantsPageProps) 
                 </div>
               </div>
 
-              <div className="mt-5 grid gap-3 md:grid-cols-3">
+              <div className="mt-5 grid gap-3 md:grid-cols-4">
                 <div className="rounded-xl border border-white/10 bg-black/30 p-4">
                   <p className="text-xs uppercase tracking-[0.15em] text-zinc-500">
                     Chef / identity
@@ -213,6 +262,18 @@ export default async function RestaurantsPage({ params }: RestaurantsPageProps) 
                   </p>
                   <p className="mt-1 text-xs text-zinc-500">
                     Public profile and request flow inputs
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-black/30 p-4">
+                  <p className="text-xs uppercase tracking-[0.15em] text-zinc-500">
+                    Public reservations
+                  </p>
+                  <p className={`mt-2 text-sm font-medium ${publicReservationReady ? "text-emerald-300" : "text-amber-300"}`}>
+                    {publicReservationReady ? "Ready" : "Not ready"}
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {restaurant.public_reservations_enabled ? "Enabled" : "Disabled"} · {hasActivePeriod ? "Period" : "No period"} · {hasCalendar ? "Calendar" : "No calendar"} · {hasCapacity ? "Capacity" : "No capacity"}
                   </p>
                 </div>
 
