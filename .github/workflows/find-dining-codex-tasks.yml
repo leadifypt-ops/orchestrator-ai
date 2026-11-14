@@ -129,9 +129,18 @@ jobs:
           gh pr create --base main --head "$DRAFT_BRANCH" --draft \
             --title "codex(find-dining): proposal for issue #$ISSUE_NUMBER" \
             --body "Proposed by the opt-in Codex task runner for issue #$ISSUE_NUMBER. Read AGENTS.md. This is a **draft** and requires human review, CI and approval before merge. No production migration or deployment is authorized."
+          pr_number="$(gh pr view "$DRAFT_BRANCH" --json number --jq '.number')"
+          echo "DRAFT_PR_NUMBER=$pr_number" >> "$GITHUB_ENV"
 
       - name: Trigger TypeScript CI on the generated draft branch
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run find-dining-typecheck.yml --ref "$DRAFT_BRANCH"
+
+      - name: Dispatch opt-in read-only Codex review
+        if: ${{ vars.CODEX_REVIEW_ENABLED == 'true' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run find-dining-codex-dispatched-review.yml --ref main -f pr_number="$DRAFT_PR_NUMBER"
