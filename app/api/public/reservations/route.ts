@@ -3,7 +3,6 @@ import { createClient } from "@supabase/supabase-js";
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
-const allowedSlots = new Set(["19:00", "19:15", "19:30", "19:45", "20:00", "20:15", "20:30", "20:45", "21:00", "21:15", "21:30", "21:45", "22:00"]);
 
 type GuestProfile = { name: string; allergies: string[]; intolerances: string[]; dietary_restrictions: string[]; dislikes: string[]; wine_preference: string; notes: string; reviewed: true };
 
@@ -50,6 +49,50 @@ function isRealDate(value: string) {
 }
 function errorResponse(message: string, status: number) { return Response.json({ success: false, message }, { status }); }
 
+function publicSupabase() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !anonKey) return null;
+  return createClient(supabaseUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const restaurantSlug = (url.searchParams.get("restaurant_slug") || "").trim().toLowerCase().slice(0, 120);
+  const requestedDate = (url.searchParams.get("requested_date") || "").trim().slice(0, 10);
+  const partySize = Number(url.searchParams.get("party_size") || "2");
+
+  if (!restaurantSlug || !isRealDate(requestedDate) || !Number.isInteger(partySize) || partySize < 1 || partySize > 20) {
+    return errorResponse("Please choose a valid restaurant, date and party size.", 400);
+  }
+
+  const supabase = publicSupabase();
+  if (!supabase) return errorResponse("Reservation availability is temporarily unavailable.", 503);
+
+  const { data, error } = await supabase.rpc("resolve_public_reservation_slots_v1", {
+    p_restaurant_slug: restaurantSlug,
+    p_requested_date: requestedDate,
+    p_party_size: partySize,
+  });
+
+  if (error) {
+    console.error("Public availability RPC failed", { code: error.code });
+    return errorResponse("Reservation availability is temporarily unavailable.", 503);
+  }
+
+  return Response.json({
+    success: true,
+    slots: (data || []).map((slot: Record<string, unknown>) => ({
+      date: slot.requested_date,
+      time: typeof slot.requested_time === "string" ? slot.requested_time.slice(0, 5) : slot.requested_time,
+      service_period_name: slot.service_period_name,
+      status: slot.availability_status,
+      remaining_capacity: slot.remaining_capacity,
+      timezone: slot.restaurant_timezone,
+    })),
+  });
+}
+
 export async function POST(request: Request) {
   let payload: Record<string, unknown>;
   try {
@@ -70,14 +113,12 @@ export async function POST(request: Request) {
   if (!Number.isInteger(partySize) || partySize < 1 || partySize > 20) return errorResponse("Party size must be between 1 and 20.", 400);
   const isV2 = payload.guest_profiles !== undefined;
   const profiles = isV2 ? normalizeProfiles(payload.guest_profiles, partySize) : null;
-  if (isV2 && (!allowedSlots.has(requestedTime) || !profiles)) return errorResponse("Please review every guest profile and select a valid time before submitting.", 400);
+  if (isV2 && !profiles) return errorResponse("Please review every guest profile and select a valid time before submitting.", 400);
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !anonKey) return errorResponse("Reservation requests are temporarily unavailable.", 503);
+  const supabase = publicSupabase();
+  if (!supabase) return errorResponse("Reservation requests are temporarily unavailable.", 503);
   try {
-    const supabase = createClient(supabaseUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
-    const rpc = isV2 ? "create_public_reservation_v2" : "create_public_reservation_v1";
+    const rpc = isV2 ? "create_public_reservation_v3" : "create_public_reservation_v1";
     const args = isV2
       ? { p_restaurant_slug: restaurantSlug, p_guest_name: guestName, p_guest_email: guestEmail, p_guest_phone: textValue(payload, "phone", 50) || null, p_requested_date: requestedDate, p_requested_time: requestedTime, p_party_size: partySize, p_occasion: textValue(payload, "occasion", 200) || null, p_special_request: textValue(payload, "special_request", 2000) || null, p_experience_notes: textValue(payload, "experience_notes", 2000) || null, p_guest_profiles: profiles }
       : { p_restaurant_slug: restaurantSlug, p_guest_name: guestName, p_guest_email: guestEmail, p_guest_phone: textValue(payload, "phone", 50) || null, p_requested_date: requestedDate, p_requested_time: requestedTime, p_party_size: partySize, p_occasion: textValue(payload, "occasion", 200) || null, p_special_request: textValue(payload, "special_request", 2000) || null, p_allergies: listValue(payload, "allergies"), p_intolerances: listValue(payload, "intolerances"), p_dietary_restrictions: listValue(payload, "dietary_restrictions"), p_dislikes: listValue(payload, "dislikes"), p_wine_preferences: textValue(payload, "wine_preferences", 2000) || null, p_experience_notes: textValue(payload, "experience_notes", 2000) || null };
@@ -87,7 +128,7 @@ export async function POST(request: Request) {
       return errorResponse("We could not submit your request. Please try again.", 503);
     }
   } catch (error) {
-    console.error("Public reservation RPC request failed", { error: error instanceof Error ? error.name : "UnknownError", rpc: "create_public_reservation_v2" });
+    console.error("Public reservation RPC request failed", { error: error instanceof Error ? error.name : "UnknownError", rpc: "create_public_reservation_v3" });
     return errorResponse("We could not submit your request. Please try again.", 503);
   }
   return Response.json({ success: true, message: "Your reservation request has been received and will be reviewed by the restaurant." });

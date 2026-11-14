@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 import ReservationRequestForm from "./reservation-request-form";
 
 type PublicReservationPageProps = {
@@ -10,21 +11,41 @@ type PublicReservationPageProps = {
     slug: string;
   }>;
 };
+type PublicReservationReadiness = {
+  reservation_ready?: boolean | null;
+};
 
 export const metadata: Metadata = {
-  title: "Request a table at Feitoria | Find Dining",
+  title: "Request a table | Find Dining",
   description:
-    "Start a reservation request for Feitoria. Requests are reviewed by the restaurant and are not automatically confirmed.",
+    "Start a reservation request. Requests are reviewed by the restaurant and are not automatically confirmed.",
 };
 
 export default async function PublicReservationPage({
   params,
 }: PublicReservationPageProps) {
   const { locale, slug } = await params;
+  const supabase = await createClient();
 
-  if (slug !== "feitoria") {
+  const [{ data: restaurant }, { data: readiness }] = await Promise.all([
+    supabase
+      .from("restaurants")
+      .select("id, name, slug, location, michelin_status, image_url")
+      .eq("slug", slug)
+      .maybeSingle(),
+    supabase
+      .rpc("public_reservation_readiness_v1", { p_restaurant_slug: slug })
+      .maybeSingle(),
+  ]);
+  const reservationReadiness = readiness as PublicReservationReadiness | null;
+
+  if (!restaurant || !reservationReadiness?.reservation_ready) {
     notFound();
   }
+
+  const isFeitoria = slug === "feitoria";
+  const restaurantName = restaurant.name || "Restaurant";
+  const heroImage = isFeitoria ? "/assets/feitoria-v1/hero-sala-1.jpeg" : restaurant.image_url;
 
   return (
     <main className="min-h-screen bg-[#080806] text-[#f4f0e7]">
@@ -37,31 +58,39 @@ export default async function PublicReservationPage({
             Find Dining
           </Link>
           <Link
-            href={`/${locale}/restaurants/feitoria`}
+            href={`/${locale}/restaurants/${slug}`}
             className="rounded-full border border-white/20 px-4 py-2 text-[0.65rem] font-semibold uppercase tracking-[0.14em] transition hover:border-white hover:bg-white hover:text-black"
           >
-            Back to Feitoria
+            Back to {restaurantName}
           </Link>
         </div>
       </header>
 
       <div className="mx-auto grid max-w-[90rem] lg:min-h-[calc(100vh-5rem)] lg:grid-cols-[0.78fr_1.22fr]">
         <aside className="relative min-h-[24rem] overflow-hidden border-b border-white/10 lg:min-h-full lg:border-b-0 lg:border-r">
-          <Image
-            src="/assets/feitoria-v1/hero-sala-1.jpeg"
-            alt="The dining room at Feitoria"
-            fill
-            priority
-            sizes="(min-width: 1024px) 40vw, 100vw"
-            className="object-cover"
-          />
+          {isFeitoria ? (
+            <Image
+              src="/assets/feitoria-v1/hero-sala-1.jpeg"
+              alt={`The dining room at ${restaurantName}`}
+              fill
+              priority
+              sizes="(min-width: 1024px) 40vw, 100vw"
+              className="object-cover"
+            />
+          ) : heroImage ? (
+            <img
+              src={heroImage}
+              alt={`The dining room at ${restaurantName}`}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          ) : null}
           <div className="absolute inset-0 bg-gradient-to-t from-black via-black/35 to-black/20" />
           <div className="absolute inset-x-0 bottom-0 p-6 sm:p-10 lg:p-12">
             <p className="text-[0.65rem] font-semibold uppercase tracking-[0.28em] text-[#e2c873]">
-              One Michelin Star / Lisbon
+              {restaurant.michelin_status || "Find Dining"} / {restaurant.location || "Location shared after review"}
             </p>
             <h1 className="mt-5 text-5xl font-light tracking-[-0.04em] sm:text-6xl">
-              Feitoria
+              {restaurantName}
             </h1>
             <p className="mt-5 max-w-md text-sm font-light leading-7 text-white/65">
               Begin with the details that matter. Share individual preferences so
@@ -84,7 +113,7 @@ export default async function PublicReservationPage({
               a table is confirmed.
             </p>
 
-            <ReservationRequestForm restaurantSlug={slug} />
+            <ReservationRequestForm restaurantSlug={slug} restaurantName={restaurantName} />
           </div>
         </section>
       </div>

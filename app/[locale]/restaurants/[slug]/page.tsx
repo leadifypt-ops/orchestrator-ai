@@ -8,6 +8,9 @@ type RestaurantPageProps = {
     locale: string;
   }>;
 };
+type PublicReservationReadiness = {
+  reservation_ready?: boolean | null;
+};
 
 export default async function RestaurantPage({ params }: RestaurantPageProps) {
   const { slug, locale } = await params;
@@ -30,6 +33,10 @@ export default async function RestaurantPage({ params }: RestaurantPageProps) {
     .eq("restaurant_id", restaurant.id)
     .order("display_order", { ascending: true });
   const featuredDishes = featuredDishesData ?? [];
+  const { data: readiness } = await supabase
+    .rpc("public_reservation_readiness_v1", { p_restaurant_slug: slug })
+    .maybeSingle();
+  const reservationReadiness = readiness as PublicReservationReadiness | null;
 
   const accentColor = restaurant.brand_accent_color || "#d4af37";
   const primaryColor = restaurant.brand_primary_color || "#0f0f0f";
@@ -41,8 +48,8 @@ export default async function RestaurantPage({ params }: RestaurantPageProps) {
   const teamImage = isFeitoria ? "/assets/feitoria-v1/team-feitoria.jpg" : null;
   const kitchenImage = isFeitoria ? "/assets/feitoria-v1/kitchen-behind-scenes.jpg" : null;
   const chefName = restaurant.chef_name || "Chef André Cruz";
-  const reservationHref = isFeitoria
-    ? `/${locale}/restaurants/feitoria/reserve`
+  const reservationHref = reservationReadiness?.reservation_ready
+    ? `/${locale}/restaurants/${slug}/reserve`
     : null;
 
   return (
@@ -522,7 +529,7 @@ export default async function RestaurantPage({ params }: RestaurantPageProps) {
       {/* Final CTA Section */}
       <section className="px-6 py-12 sm:py-16 md:py-20 md:px-12 lg:py-28 lg:px-20 border-t border-white/10">
             <h2 className="mt-6 text-4xl md:text-5xl font-light leading-tight">
-              A table at Feitoria, thoughtfully prepared.
+              A table at {restaurant.name}, thoughtfully prepared.
             </h2>
 
             <p className="mt-8 text-lg text-white/70 font-light leading-8">
