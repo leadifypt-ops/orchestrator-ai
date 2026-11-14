@@ -1,17 +1,25 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { createClient } from "@/lib/supabase/server";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { userId } = body;
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-    if (!userId) {
-      return NextResponse.json(
-        { error: "userId em falta." },
-        { status: 400 }
-      );
+    if (authError || !user) {
+      return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
     }
+
+    if (typeof userId !== "string" || userId !== user.id) {
+      return NextResponse.json({ error: "Não autorizado." }, { status: 403 });
+    }
+
 
     const { data: existingSubscription, error: findError } = await supabaseAdmin
       .from("subscriptions")
