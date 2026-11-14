@@ -9,7 +9,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 ## Source of truth
 - Inspect actual repository state and applied migrations before assuming a task is finished.
 - Read `docs/find-dine-master-v2.md` and `docs/find-dining-devlog-v2-blocks-39-48.md`; preserve historical DevLogs without deletion or silent rewriting.
-- As of 2026-11-12 GitHub main documents Block 48. Later Block 49 work and migration `20260707000100_public_reservation_enablement_v3.sql` are not in main. Reconcile unpushed code and remote migration state before working on Block 49 or 50.
+- As of 2026-11-14, GitHub main still documents Block 48, but Block 49 was **recovered** to `recovery/find-dining-block49-20261114` and opened as draft PR #4. Supabase read-only checks found 35/35 historical migrations applied, including the two Block 49 migrations. This is NOT proof of full schema parity or readiness for live reservations. Do not start Block 50 until the recovered work and security issues #5/#6/#7 are reconciled and reviewed.
 
 ## Safety and boundaries
 - Operate only on Find Dining files in this repo. Never modify Leadify or another project.
